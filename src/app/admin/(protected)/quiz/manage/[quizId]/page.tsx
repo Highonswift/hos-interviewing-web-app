@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import {
   Question, Quiz, CodingQuestion, TestCase,
-  CodingLanguage, LANGUAGE_META, QuizItem, QuizItemType,
+  CodingLanguage, LANGUAGE_META, QuizItem, QuizItemType, QuizSection,
 } from '@/lib/types';
 import Link from 'next/link';
 
@@ -201,46 +201,29 @@ function PageHeader({ quiz, questionCount, countLabel }: {
   );
 }
 
-function MCQEditor({ quiz, onCountChange }: {
-  quiz: Quiz; onCountChange: (n: number) => void;
-}) {
-  const [questions,   setQuestions]   = useState<Question[]>([]);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [successMsg,  setSuccessMsg]  = useState(false);
-  const [questionText,setQuestionText]= useState('');
-  const [options,     setOptions]     = useState(['','','','']);
-  const [correctIdx,  setCorrectIdx]  = useState(0);
-  const [timeLimit,   setTimeLimit]   = useState(60);
-  const [editingQ,    setEditingQ]    = useState<Question|null>(null);
-  const [savingQ,     setSavingQ]     = useState(false);
-  const [deletingQ,   setDeletingQ]   = useState<Question|null>(null);
-  const [deletingQQ,  setDeletingQQ]  = useState(false);
+// ─── Section-aware MCQ Editor ─────────────────────────────────────────────
 
+interface SectionWithQuestions extends QuizSection {
+  questions: Question[];
+}
+
+function AddQuestionForm({ quizId, sectionId, onAdded }: {
+  quizId: string; sectionId: string; onAdded: () => void;
+}) {
+  const [questionText, setQuestionText] = useState('');
+  const [options,      setOptions]      = useState(['','','','']);
+  const [correctIdx,   setCorrectIdx]   = useState(0);
+  const [timeLimit,    setTimeLimit]    = useState(60);
   const [imageFile,    setImageFile]    = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [submitting,   setSubmitting]   = useState(false);
   const [uploadingImg, setUploadingImg] = useState(false);
-
-  const fetchQuestions = useCallback(async () => {
-    const { data } = await supabase.from('questions').select('*')
-      .eq('quiz_id', quiz.id).order('created_at', { ascending: true });
-    if (data) { setQuestions(data); onCountChange(data.length); }
-  }, [quiz.id, onCountChange]);
-
-  useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
+  const [successMsg,   setSuccessMsg]   = useState(false);
 
   const updateOption = (i: number, v: string) => {
     const next = [...options]; next[i] = v; setOptions(next);
   };
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
-    }
-  };
-
-  const removeSelectedImage = () => {
+  const removeImage = () => {
     setImageFile(null);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImagePreview(null);
@@ -250,30 +233,356 @@ function MCQEditor({ quiz, onCountChange }: {
     e.preventDefault();
     if (options.some(o => !o.trim())) { alert('Fill in all 4 options.'); return; }
     setSubmitting(true);
-
     let imageUrl: string | null = null;
     if (imageFile) {
       setUploadingImg(true);
-      imageUrl = await uploadQuestionImage(imageFile, quiz.id);
+      imageUrl = await uploadQuestionImage(imageFile, quizId);
       setUploadingImg(false);
     }
-
     const { error } = await supabase.from('questions').insert([{
-      quiz_id: quiz.id,
+      quiz_id: quizId,
+      section_id: sectionId,
       question_text: questionText,
       options,
       correct_answer: options[correctIdx],
       time_limit_seconds: timeLimit,
       image_url: imageUrl,
     }]);
-
     if (!error) {
-      setQuestionText(''); setOptions(['','','','']); setCorrectIdx(0); setTimeLimit(60);
-      removeSelectedImage();
+      setQuestionText(''); setOptions(['','','','']); setCorrectIdx(0); setTimeLimit(60); removeImage();
       setSuccessMsg(true); setTimeout(() => setSuccessMsg(false), 2500);
-      await fetchQuestions();
+      onAdded();
     } else alert('Error: ' + error.message);
     setSubmitting(false);
+  };
+
+  return (
+    <form onSubmit={handleAdd} className="space-y-4 pt-1">
+      {successMsg && <SuccessToast msg="Question added!" />}
+      <div className="flex flex-col gap-1.5">
+        <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Question Text</label>
+        <textarea required rows={3} placeholder="Type the question here…" value={questionText}
+          onChange={e => setQuestionText(e.target.value)}
+          className="w-full px-4 py-3 rounded-2xl font-body text-sm text-charcoal-900 placeholder:text-charcoal-400 bg-white border-2 border-warm-300 hover:border-warm-400 focus:border-brand-400 focus:outline-none resize-none transition-all duration-200"/>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Image (Optional)</label>
+        {imagePreview ? (
+          <div className="relative w-fit border-2 border-warm-300 rounded-2xl p-2 bg-warm-50">
+            <img src={imagePreview} alt="preview" className="max-h-40 rounded-xl object-contain" />
+            <button type="button" onClick={removeImage}
+              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="12"/></svg>
+            </button>
+          </div>
+        ) : (
+          <label className="flex items-center gap-3 px-4 py-3 border-2 border-dashed border-warm-300 hover:border-brand-400 rounded-2xl cursor-pointer bg-warm-50/50 text-charcoal-500 text-sm transition-all">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-charcoal-400"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <span>Attach image (diagram, chart, figure)</span>
+            <input type="file" accept="image/*" className="hidden" onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) { setImageFile(f); setImagePreview(URL.createObjectURL(f)); }
+            }}/>
+          </label>
+        )}
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Answer Options</label>
+          <span className="text-xs text-charcoal-400 hidden sm:block">Click circle = correct</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {options.map((opt, i) => {
+            const isCorrect = correctIdx === i;
+            return (
+              <div key={i} className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all duration-150 ${isCorrect ? 'border-green-400 bg-green-50' : 'border-warm-200 bg-white hover:border-warm-300'}`}>
+                <button type="button" onClick={() => setCorrectIdx(i)}
+                  className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${isCorrect ? 'border-green-500 bg-green-500' : 'border-warm-400 bg-white hover:border-green-400'}`}>
+                  {isCorrect && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                </button>
+                <span className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center font-display font-bold text-xs ${isCorrect ? 'bg-green-500 text-white' : 'bg-warm-100 text-charcoal-500'}`}>{OPTION_LABELS[i]}</span>
+                <input required placeholder={`Option ${OPTION_LABELS[i]}`} value={opt}
+                  onChange={e => updateOption(i, e.target.value)}
+                  className={`flex-1 min-w-0 text-sm font-body bg-transparent focus:outline-none placeholder:text-charcoal-400 ${isCorrect ? 'text-green-800 font-semibold' : 'text-charcoal-800'}`}/>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <TimeLimitPicker presets={[30,45,60,90,120]} value={timeLimit} onChange={setTimeLimit}/>
+
+      <div className="pt-1">
+        <button type="submit" disabled={submitting || uploadingImg}
+          className="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-display font-semibold text-sm px-5 py-2.5 rounded-2xl shadow-brand-sm active:scale-[0.97] transition-all duration-200">
+          {submitting || uploadingImg
+            ? <><svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>{uploadingImg ? 'Uploading…' : 'Adding…'}</>
+            : <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Question</>
+          }
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function SectionCard({
+  section, index, total, questions,
+  onMoveUp, onMoveDown, onRename, onDelete, onQuestionsChanged,
+  editingQ, setEditingQ, deletingQ, setDeletingQ,
+}: {
+  section: QuizSection;
+  index: number;
+  total: number;
+  questions: Question[];
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+  onQuestionsChanged: () => void;
+  editingQ: Question | null;
+  setEditingQ: (q: Question | null) => void;
+  deletingQ: Question | null;
+  setDeletingQ: (q: Question | null) => void;
+}) {
+  const [expanded,     setExpanded]     = useState(true);
+  const [showAddForm,  setShowAddForm]  = useState(false);
+  const [renaming,     setRenaming]     = useState(false);
+  const [nameInput,    setNameInput]    = useState(section.name);
+  const [confirmDel,   setConfirmDel]   = useState(false);
+
+  const saveRename = async () => {
+    if (!nameInput.trim()) return;
+    await supabase.from('quiz_sections').update({ name: nameInput.trim() }).eq('id', section.id);
+    onRename(nameInput.trim());
+    setRenaming(false);
+  };
+
+  return (
+    <div className="bg-white border border-warm-200 rounded-3xl shadow-sm overflow-hidden">
+      {/* Section header */}
+      <div className="flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-warm-50 to-white border-b border-warm-100">
+        {/* Reorder */}
+        <div className="flex flex-col gap-0.5 flex-shrink-0">
+          <button type="button" disabled={index === 0} onClick={onMoveUp}
+            className="p-1 rounded-md text-charcoal-400 hover:text-charcoal-700 hover:bg-warm-100 disabled:opacity-25 disabled:hover:bg-transparent transition-colors">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+          </button>
+          <button type="button" disabled={index === total - 1} onClick={onMoveDown}
+            className="p-1 rounded-md text-charcoal-400 hover:text-charcoal-700 hover:bg-warm-100 disabled:opacity-25 disabled:hover:bg-transparent transition-colors">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
+
+        {/* Section number badge */}
+        <div className="w-8 h-8 rounded-xl bg-brand-600 text-white font-display font-extrabold text-sm flex items-center justify-center flex-shrink-0">
+          {index + 1}
+        </div>
+
+        {/* Name / rename */}
+        <div className="flex-1 min-w-0">
+          {renaming ? (
+            <div className="flex items-center gap-2">
+              <input autoFocus value={nameInput} onChange={e => setNameInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') setRenaming(false); }}
+                className="flex-1 min-w-0 px-3 py-1.5 rounded-xl border-2 border-brand-400 text-sm font-display font-semibold text-charcoal-900 focus:outline-none"/>
+              <button onClick={saveRename} className="px-3 py-1.5 text-xs font-display font-semibold bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-colors">Save</button>
+              <button onClick={() => { setRenaming(false); setNameInput(section.name); }} className="px-3 py-1.5 text-xs font-display font-semibold bg-warm-100 text-charcoal-600 rounded-xl hover:bg-warm-200 transition-colors">Cancel</button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="font-display font-bold text-charcoal-900 text-base truncate">{section.name}</span>
+              <span className="text-xs font-medium text-charcoal-400 bg-warm-100 border border-warm-200 px-2 py-0.5 rounded-pill flex-shrink-0">
+                {questions.length} Q
+              </span>
+              <span className="text-xs text-charcoal-400 flex-shrink-0">· shuffled at play-time</span>
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {!renaming && (
+            <button onClick={() => setRenaming(true)}
+              className="p-1.5 rounded-lg text-charcoal-400 hover:text-charcoal-700 hover:bg-warm-100 transition-colors" title="Rename section">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+          )}
+          <button onClick={() => setConfirmDel(true)}
+            className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete section">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+          <button onClick={() => setExpanded(e => !e)}
+            className="p-1.5 rounded-lg text-charcoal-400 hover:text-charcoal-700 hover:bg-warm-100 transition-colors">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+              style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Body */}
+      {expanded && (
+        <div className="p-5 sm:p-6 space-y-5">
+          {/* Questions list */}
+          {questions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center bg-warm-50 border border-warm-200 border-dashed rounded-2xl">
+              <p className="font-display font-bold text-charcoal-500 text-sm mb-1">No questions yet</p>
+              <p className="text-charcoal-400 text-xs">Use the form below to add the first question to this section.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {questions.map((q, idx) => (
+                <div key={q.id} className="bg-white border border-warm-200 rounded-2xl shadow-xs hover:shadow-sm hover:border-warm-300 transition-all duration-200 overflow-hidden">
+                  <div className="flex items-start gap-3 p-4 pb-3">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-lg bg-brand-100 text-brand-700 font-display font-bold text-xs flex items-center justify-center mt-0.5">{idx+1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-display font-semibold text-charcoal-900 text-sm leading-snug">{q.question_text}</p>
+                      {q.image_url && (
+                        <div className="mt-2"><img src={q.image_url} alt="figure" className="max-h-28 max-w-xs rounded-xl border border-warm-200 object-contain bg-warm-50 p-1" /></div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-4 pb-3">
+                    {q.options.map((opt, i) => {
+                      const isCorrect = opt === q.correct_answer;
+                      return (
+                        <div key={i} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs ${isCorrect ? 'bg-green-50 border border-green-200 text-green-800 font-semibold' : 'bg-warm-50 border border-warm-200 text-charcoal-600'}`}>
+                          <span className={`flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center font-display font-bold text-[10px] ${isCorrect ? 'bg-green-500 text-white' : 'bg-warm-100 text-charcoal-500'}`}>{OPTION_LABELS[i]}</span>
+                          <span className="truncate">{opt}</span>
+                          {isCorrect && <svg width="11" height="11" className="flex-shrink-0 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between px-4 py-2 border-t border-warm-100 bg-warm-50/60">
+                    <span className="flex items-center gap-1.5 text-xs text-charcoal-400 font-medium">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      {q.time_limit_seconds}s
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => setEditingQ(q)} className="inline-flex items-center gap-1 text-xs font-display font-semibold px-2.5 py-1.5 rounded-xl bg-white text-charcoal-600 hover:bg-warm-100 border border-warm-200 transition-colors">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        Edit
+                      </button>
+                      <button onClick={() => setDeletingQ(q)} className="inline-flex items-center gap-1 text-xs font-display font-semibold px-2.5 py-1.5 rounded-xl bg-white text-red-500 hover:bg-red-50 border border-warm-200 hover:border-red-200 transition-all duration-200">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Toggle add form */}
+          <div>
+            <button type="button" onClick={() => setShowAddForm(f => !f)}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl font-display font-semibold text-sm transition-all duration-200 border-2 ${showAddForm ? 'bg-warm-100 border-warm-300 text-charcoal-600' : 'bg-white border-brand-200 text-brand-600 hover:bg-brand-50 hover:border-brand-400'}`}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: showAddForm ? 'rotate(45deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              {showAddForm ? 'Cancel' : 'Add Question to this Section'}
+            </button>
+
+            {showAddForm && (
+              <div className="mt-4 bg-warm-50 border border-warm-200 rounded-2xl p-5 animate-fade-down">
+                <AddQuestionForm
+                  quizId={section.quiz_id}
+                  sectionId={section.id}
+                  onAdded={() => { onQuestionsChanged(); setShowAddForm(false); }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {confirmDel && (
+        <ConfirmDeleteModal
+          title="Delete Section?"
+          body={`This will delete "${section.name}" and ALL its questions permanently.`}
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={async () => {
+            await supabase.from('questions').delete().eq('section_id', section.id);
+            await supabase.from('quiz_sections').delete().eq('id', section.id);
+            setConfirmDel(false);
+            onDelete();
+          }}
+          deleting={false}
+        />
+      )}
+    </div>
+  );
+}
+
+function MCQEditor({ quiz, onCountChange }: {
+  quiz: Quiz; onCountChange: (n: number) => void;
+}) {
+  const [sections,      setSections]      = useState<SectionWithQuestions[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [creatingSection, setCreatingSection] = useState(false);
+  const [newSectionName,  setNewSectionName]  = useState('');
+  const [editingQ,      setEditingQ]      = useState<Question | null>(null);
+  const [savingQ,       setSavingQ]       = useState(false);
+  const [deletingQ,     setDeletingQ]     = useState<Question | null>(null);
+  const [deletingQQ,    setDeletingQQ]    = useState(false);
+  const [showNewSection, setShowNewSection] = useState(false);
+
+  const fetchAll = useCallback(async () => {
+    const { data: sects } = await supabase
+      .from('quiz_sections').select('*')
+      .eq('quiz_id', quiz.id).order('position', { ascending: true });
+
+    const { data: qs } = await supabase
+      .from('questions').select('*')
+      .eq('quiz_id', quiz.id).order('created_at', { ascending: true });
+
+    const qList: Question[] = qs ?? [];
+    const sList: QuizSection[] = sects ?? [];
+
+    const combined: SectionWithQuestions[] = sList.map(s => ({
+      ...s,
+      questions: qList.filter(q => q.section_id === s.id),
+    }));
+
+    setSections(combined);
+    onCountChange(qList.filter(q => q.section_id !== null).length);
+    setLoading(false);
+  }, [quiz.id, onCountChange]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const handleCreateSection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSectionName.trim()) return;
+    setCreatingSection(true);
+    const nextPos = sections.length;
+    await supabase.from('quiz_sections').insert([{
+      quiz_id: quiz.id,
+      name: newSectionName.trim(),
+      position: nextPos,
+    }]);
+    setNewSectionName('');
+    setShowNewSection(false);
+    setCreatingSection(false);
+    await fetchAll();
+  };
+
+  const moveSection = async (index: number, dir: 'up' | 'down') => {
+    const targetIdx = dir === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= sections.length) return;
+    const a = sections[index];
+    const b = sections[targetIdx];
+    await Promise.all([
+      supabase.from('quiz_sections').update({ position: targetIdx }).eq('id', a.id),
+      supabase.from('quiz_sections').update({ position: index }).eq('id', b.id),
+    ]);
+    await fetchAll();
   };
 
   const handleEditSave = async (updated: Partial<Question>) => {
@@ -281,7 +590,7 @@ function MCQEditor({ quiz, onCountChange }: {
     setSavingQ(true);
     const { error } = await supabase.from('questions').update(updated).eq('id', editingQ.id);
     if (error) alert('Error: ' + error.message);
-    else { setEditingQ(null); await fetchQuestions(); }
+    else { setEditingQ(null); await fetchAll(); }
     setSavingQ(false);
   };
 
@@ -290,165 +599,117 @@ function MCQEditor({ quiz, onCountChange }: {
     setDeletingQQ(true);
     const { error } = await supabase.from('questions').delete().eq('id', deletingQ.id);
     if (error) alert('Error: ' + error.message);
-    else { setDeletingQ(null); await fetchQuestions(); }
+    else { setDeletingQ(null); await fetchAll(); }
     setDeletingQQ(false);
   };
 
+  if (loading) return <LoadingState />;
+
   return (
-    <div className="space-y-7">
-      <div className="bg-white border border-warm-200 rounded-3xl shadow-sm overflow-hidden">
-        <div className="h-1.5 w-full bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700"/>
-        <div className="p-6 sm:p-7">
-          <div className="flex items-center gap-2.5 mb-6">
-            <div className="w-8 h-8 rounded-xl bg-brand-100 flex items-center justify-center text-brand-600">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-            </div>
-            <h2 className="font-display font-bold text-charcoal-900 text-base">Add a New Question</h2>
+    <div className="space-y-6">
+      {/* Header bar */}
+      <div className="bg-white border border-warm-200 rounded-3xl p-5 sm:p-6 shadow-xs flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="font-display font-bold text-charcoal-900 text-lg">MCQ Sections</h2>
+          <p className="text-charcoal-500 text-xs mt-0.5">
+            Sections are shown in fixed order · questions within each section are randomised for candidates
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="bg-brand-50 border border-brand-200 rounded-2xl px-3.5 py-2 text-center">
+            <div className="text-[10px] font-display font-semibold uppercase tracking-wider text-brand-600">Sections</div>
+            <div className="font-display font-extrabold text-brand-900 text-base">{sections.length}</div>
           </div>
-          {successMsg && <div className="mb-5"><SuccessToast msg="Question added!" /></div>}
-          <form onSubmit={handleAdd} className="space-y-5">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="q-text" className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">
-                Question Text
-              </label>
-              <textarea id="q-text" required rows={3}
-                placeholder="Type the question here…"
-                value={questionText} onChange={e => setQuestionText(e.target.value)}
-                className="w-full px-4 py-3 rounded-2xl font-body text-sm text-charcoal-900 placeholder:text-charcoal-400 bg-white border-2 border-warm-300 hover:border-warm-400 focus:border-brand-400 focus:outline-none focus:shadow-[0_0_0_3px_rgb(232_72_58_/_0.09)] resize-none transition-all duration-200"/>
+          <div className="bg-warm-100 border border-warm-200 rounded-2xl px-3.5 py-2 text-center">
+            <div className="text-[10px] font-display font-semibold uppercase tracking-wider text-charcoal-400">Questions</div>
+            <div className="font-display font-extrabold text-charcoal-900 text-base">
+              {sections.reduce((acc, s) => acc + s.questions.length, 0)}
             </div>
+          </div>
+        </div>
+      </div>
 
-            {/* Image upload section */}
-            <div className="flex flex-col gap-1.5">
-              <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">
-                Question Image (Optional)
-              </label>
-              {imagePreview ? (
-                <div className="relative w-fit border-2 border-warm-300 rounded-2xl p-2 bg-warm-50 group">
-                  <img src={imagePreview} alt="Question preview" className="max-h-48 rounded-xl object-contain" />
-                  <button type="button" onClick={removeSelectedImage}
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-md transition-colors">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="12"/></svg>
-                  </button>
-                </div>
-              ) : (
-                <label className="flex items-center gap-3 px-4 py-3 border-2 border-dashed border-warm-300 hover:border-brand-400 rounded-2xl cursor-pointer bg-warm-50/50 hover:bg-warm-50 transition-all text-charcoal-500 text-sm">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-charcoal-400">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
-                  </svg>
-                  <span>Click to attach an image (e.g. diagram, chart, aptitude figure)</span>
-                  <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
-                </label>
-              )}
-            </div>
+      {/* Sections */}
+      {sections.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-center bg-white border border-warm-200 border-dashed rounded-3xl">
+          <div className="w-14 h-14 rounded-2xl bg-brand-50 border border-brand-100 flex items-center justify-center mb-4 text-brand-500">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+            </svg>
+          </div>
+          <p className="font-display font-bold text-charcoal-700 text-sm mb-1">No sections yet</p>
+          <p className="text-charcoal-400 text-xs max-w-xs mb-5">
+            Create your first section (e.g. "Aptitude MCQ", "Technical MCQ") to start adding questions.
+          </p>
+        </div>
+      )}
 
-            <div>
-              <div className="flex items-center justify-between mb-2.5">
-                <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Answer Options</label>
-                <span className="text-xs text-charcoal-400 font-medium hidden sm:block">Click circle = correct answer</span>
+      {sections.map((s, i) => (
+        <SectionCard
+          key={s.id}
+          section={s}
+          index={i}
+          total={sections.length}
+          questions={s.questions}
+          onMoveUp={() => moveSection(i, 'up')}
+          onMoveDown={() => moveSection(i, 'down')}
+          onRename={name => setSections(prev => prev.map((sec, idx) => idx === i ? { ...sec, name } : sec))}
+          onDelete={() => fetchAll()}
+          onQuestionsChanged={() => fetchAll()}
+          editingQ={editingQ}
+          setEditingQ={setEditingQ}
+          deletingQ={deletingQ}
+          setDeletingQ={setDeletingQ}
+        />
+      ))}
+
+      {/* Add section button / form */}
+      <div>
+        {showNewSection ? (
+          <form onSubmit={handleCreateSection}
+            className="bg-white border-2 border-brand-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4 animate-fade-down">
+            <div className="flex items-center gap-2.5 mb-1">
+              <div className="w-7 h-7 rounded-xl bg-brand-100 flex items-center justify-center text-brand-600">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {options.map((opt, i) => {
-                  const isCorrect = correctIdx === i;
-                  return (
-                    <div key={i} className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all duration-150 ${isCorrect ? 'border-green-400 bg-green-50' : 'border-warm-200 bg-white hover:border-warm-300'}`}>
-                      <button type="button" onClick={() => setCorrectIdx(i)}
-                        className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-150 ${isCorrect ? 'border-green-500 bg-green-500' : 'border-warm-400 bg-white hover:border-green-400'}`}>
-                        {isCorrect && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                      </button>
-                      <span className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center font-display font-bold text-xs ${isCorrect ? 'bg-green-500 text-white' : 'bg-warm-100 text-charcoal-500'}`}>{OPTION_LABELS[i]}</span>
-                      <input required placeholder={`Option ${OPTION_LABELS[i]}`} value={opt}
-                        onChange={e => updateOption(i, e.target.value)}
-                        className={`flex-1 min-w-0 text-sm font-body bg-transparent focus:outline-none placeholder:text-charcoal-400 ${isCorrect ? 'text-green-800 font-semibold' : 'text-charcoal-800'}`}/>
-                    </div>
-                  );
-                })}
-              </div>
+              <h3 className="font-display font-bold text-charcoal-900 text-base">New Section</h3>
             </div>
-            <TimeLimitPicker presets={[30,45,60,90,120]} value={timeLimit} onChange={setTimeLimit}/>
-            <div className="pt-2">
-              <button type="submit" disabled={submitting || uploadingImg}
-                className="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-display font-semibold text-sm px-6 py-3 rounded-2xl shadow-brand-sm hover:shadow-brand-md active:scale-[0.97] transition-all duration-200">
-                {submitting || uploadingImg
-                  ? <><svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>{uploadingImg ? 'Uploading image…' : 'Adding…'}</>
-                  : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Question</>
+            <div className="flex flex-col gap-1.5">
+              <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Section Name</label>
+              <input
+                autoFocus required
+                placeholder="e.g. Aptitude MCQ, Technical MCQ, Logical Reasoning…"
+                value={newSectionName}
+                onChange={e => setNewSectionName(e.target.value)}
+                className="w-full px-4 py-3 text-sm font-body text-charcoal-900 placeholder:text-charcoal-400 bg-white border-2 border-warm-300 hover:border-warm-400 focus:border-brand-400 focus:outline-none rounded-2xl transition-all duration-200"
+              />
+            </div>
+            <div className="flex items-center gap-2.5">
+              <button type="submit" disabled={creatingSection}
+                className="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-display font-semibold text-sm px-5 py-2.5 rounded-2xl shadow-brand-sm active:scale-[0.97] transition-all duration-200">
+                {creatingSection
+                  ? <><svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Creating…</>
+                  : 'Create Section'
                 }
+              </button>
+              <button type="button" onClick={() => { setShowNewSection(false); setNewSectionName(''); }}
+                className="px-5 py-2.5 rounded-2xl font-display font-semibold text-sm bg-warm-100 text-charcoal-600 hover:bg-warm-200 border border-warm-200 transition-colors">
+                Cancel
               </button>
             </div>
           </form>
-        </div>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display font-bold text-charcoal-900 text-base">
-            Questions
-            <span className="ml-2 text-xs font-semibold text-charcoal-400 bg-warm-100 border border-warm-200 px-2 py-0.5 rounded-pill">{questions.length}</span>
-          </h2>
-        </div>
-        {questions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-14 text-center bg-white border border-warm-200 border-dashed rounded-3xl">
-            <p className="font-display font-bold text-charcoal-600 text-sm mb-1">No questions yet</p>
-            <p className="text-charcoal-400 text-xs">Use the form above to add the first question.</p>
-          </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {questions.map((q, idx) => (
-              <div key={q.id} className="bg-white border border-warm-200 rounded-2xl shadow-xs hover:shadow-sm hover:border-warm-300 transition-all duration-200 overflow-hidden animate-fade-up" style={{ animationDelay: `${idx * 40}ms` }}>
-                <div className="flex items-start gap-3 p-5 pb-3">
-                  <span className="flex-shrink-0 w-7 h-7 rounded-xl bg-brand-100 text-brand-700 font-display font-bold text-xs flex items-center justify-center mt-0.5">{idx+1}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-display font-semibold text-charcoal-900 text-sm leading-snug">{q.question_text}</p>
-                    {q.image_url && (
-                      <div className="mt-2.5">
-                        <img src={q.image_url} alt="Question figure" className="max-h-36 max-w-xs rounded-xl border border-warm-200 object-contain bg-warm-50 p-1" />
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-5 pb-4">
-                  {q.options.map((opt, i) => {
-                    const isCorrect = opt === q.correct_answer;
-                    return (
-                      <div key={i} className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm ${isCorrect ? 'bg-green-50 border border-green-200 text-green-800 font-semibold' : 'bg-warm-50 border border-warm-200 text-charcoal-600'}`}>
-                        <span className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center font-display font-bold text-xs ${isCorrect ? 'bg-green-500 text-white' : 'bg-warm-100 text-charcoal-500'}`}>{OPTION_LABELS[i]}</span>
-                        <span className="flex-1 leading-snug">{opt}</span>
-                        {isCorrect && <svg width="13" height="13" className="flex-shrink-0 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="flex items-center justify-between px-5 py-2.5 border-t border-warm-100 bg-warm-50/60">
-                  <div className="flex items-center gap-3">
-                    <span className="flex items-center gap-1.5 text-xs text-charcoal-400 font-medium">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                      {q.time_limit_seconds}s limit
-                    </span>
-                    {q.image_url && (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 bg-brand-50 border border-brand-200 px-2 py-0.5 rounded-pill">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                        Image attached
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setEditingQ(q)} className="inline-flex items-center gap-1.5 text-xs font-display font-semibold px-3 py-1.5 rounded-xl bg-white text-charcoal-600 hover:bg-warm-100 border border-warm-200 transition-colors">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      Edit
-                    </button>
-                    <button onClick={() => setDeletingQ(q)} className="inline-flex items-center gap-1.5 text-xs font-display font-semibold px-3 py-1.5 rounded-xl bg-white text-red-500 hover:bg-red-50 hover:text-red-600 border border-warm-200 hover:border-red-200 transition-all duration-200">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <button type="button" onClick={() => setShowNewSection(true)}
+            className="w-full flex items-center justify-center gap-2.5 py-4 rounded-3xl border-2 border-dashed border-warm-300 hover:border-brand-400 text-charcoal-500 hover:text-brand-600 font-display font-semibold text-sm bg-white hover:bg-brand-50/30 transition-all duration-200">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Section
+          </button>
         )}
       </div>
 
+      {/* Edit modal */}
       {editingQ && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-fade-in">
           <div className="absolute inset-0 bg-charcoal-950/50 backdrop-blur-sm" onClick={() => !savingQ && setEditingQ(null)}/>

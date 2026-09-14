@@ -75,9 +75,18 @@ export interface Quiz {
   short_code?:  string | null;
 }
 
+export interface QuizSection {
+  id:         string;
+  quiz_id:    string;
+  name:       string;
+  position:   number;
+  created_at: string;
+}
+
 export interface Question {
   id:                  string;
   quiz_id:             string;
+  section_id?:         string | null;
   question_text:       string;
   options:             string[];
   correct_answer:      string;

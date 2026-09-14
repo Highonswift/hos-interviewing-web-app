@@ -32,10 +32,15 @@ interface PlayableMCQ extends Question {
 
 interface AssessmentItem {
   id: string; // unique item id or position key
-  type: 'mcq' | 'coding';
+  type: 'mcq' | 'coding' | 'section-intro';
   time_limit_seconds: number;
   mcq?: PlayableMCQ;
   coding?: CodingQuestion;
+  // section-intro fields
+  sectionName?: string;
+  sectionIndex?: number;
+  sectionTotal?: number;
+  sectionQuestionCount?: number;
 }
 
 function LogoMark({ size = 28 }: { size?: number }) {
@@ -403,35 +408,82 @@ except Exception as e:
           setLangMap(initLang);
         }
       } else {
-        // Standard MCQ Quiz
-        const { data: mcqs } = await supabase.from('questions').select('*').eq('quiz_id', quizId);
-        if (mcqs && mcqs.length > 0) {
-          mcqs.sort(() => Math.random() - 0.5).forEach(m => {
+        // Standard MCQ Quiz — check for sections first
+        const { data: sects } = await supabase
+          .from('quiz_sections').select('*')
+          .eq('quiz_id', quizId).order('position', { ascending: true });
+
+        if (sects && sects.length > 0) {
+          // Section-based flow
+          const { data: allMcqs } = await supabase
+            .from('questions').select('*').eq('quiz_id', quizId);
+
+          const qBySection: Record<string, Question[]> = {};
+          (allMcqs ?? []).forEach(q => {
+            if (!q.section_id) return;
+            if (!qBySection[q.section_id]) qBySection[q.section_id] = [];
+            qBySection[q.section_id].push(q);
+          });
+
+          sects.forEach((sect, sIdx) => {
+            const sectionQs = (qBySection[sect.id] ?? []).sort(() => Math.random() - 0.5);
+            // Add section intro item (no timer — handled specially in render)
             builtItems.push({
-              id: m.id,
-              type: 'mcq',
-              time_limit_seconds: m.time_limit_seconds,
-              mcq: {
-                ...m,
-                shuffledOptions: [...m.options].sort(() => Math.random() - 0.5),
-              },
+              id: `section-intro-${sect.id}`,
+              type: 'section-intro',
+              time_limit_seconds: 0,
+              sectionName: sect.name,
+              sectionIndex: sIdx,
+              sectionTotal: sects.length,
+              sectionQuestionCount: sectionQs.length,
+            });
+            sectionQs.forEach(m => {
+              builtItems.push({
+                id: m.id,
+                type: 'mcq',
+                time_limit_seconds: m.time_limit_seconds,
+                mcq: {
+                  ...m,
+                  shuffledOptions: [...m.options].sort(() => Math.random() - 0.5),
+                },
+              });
             });
           });
+        } else {
+          // Legacy flat shuffle (no sections)
+          const { data: mcqs } = await supabase.from('questions').select('*').eq('quiz_id', quizId);
+          if (mcqs && mcqs.length > 0) {
+            mcqs.sort(() => Math.random() - 0.5).forEach(m => {
+              builtItems.push({
+                id: m.id,
+                type: 'mcq',
+                time_limit_seconds: m.time_limit_seconds,
+                mcq: {
+                  ...m,
+                  shuffledOptions: [...m.options].sort(() => Math.random() - 0.5),
+                },
+              });
+            });
+          }
         }
       }
 
       setItems(builtItems);
       if (builtItems.length > 0) {
-        setTimeLeft(builtItems[0].time_limit_seconds);
-        setTotalTime(builtItems[0].time_limit_seconds);
+        const first = builtItems[0];
+        // section-intro items have no timer — set to 0 so timer effect skips
+        setTimeLeft(first.type === 'section-intro' ? 0 : first.time_limit_seconds);
+        setTotalTime(first.type === 'section-intro' ? 0 : first.time_limit_seconds);
       }
       setLoading(false);
     })();
   }, [quizId, router]);
 
-  // Timer countdown
+  // Timer countdown — skip for section-intro items
   useEffect(() => {
     if (loading || items.length === 0 || submitting) return;
+    const currentItem = items[currentIndex];
+    if (!currentItem || currentItem.type === 'section-intro') return;
     if (timerRef.current) clearInterval(timerRef.current);
 
     timerRef.current = setInterval(() => {
@@ -449,6 +501,25 @@ except Exception as e:
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [currentIndex, loading, submitting, items.length]);
+
+  // Section-intro: no timer, advance when candidate clicks
+  const handleSectionIntroNext = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setAnimateIn(false);
+    setTimeout(() => {
+      const nextIdx = currentIndex + 1;
+      setCurrentIndex(nextIdx);
+      const nextItem = items[nextIdx];
+      if (nextItem) {
+        setTimeLeft(nextItem.type === 'section-intro' ? 0 : nextItem.time_limit_seconds);
+        setTotalTime(nextItem.type === 'section-intro' ? 0 : nextItem.time_limit_seconds);
+      }
+      setTestRunResults([]);
+      setCodingTab('problem');
+      setRunError(null);
+      setAnimateIn(true);
+    }, 180);
+  }, [currentIndex, items]);
 
   // Test run on current coding problem
   const handleTestRun = async () => {
@@ -538,17 +609,29 @@ except Exception as e:
 
           <div className="flex items-center gap-2">
             <span className={`inline-flex items-center gap-1.5 text-xs font-display font-bold px-2.5 py-1 rounded-pill border ${
-              currentItem.type === 'coding' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-green-50 text-green-700 border-green-200'
+              currentItem.type === 'section-intro'
+                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                : currentItem.type === 'coding'
+                ? 'bg-purple-50 text-purple-700 border-purple-200'
+                : 'bg-green-50 text-green-700 border-green-200'
             }`}>
-              {currentItem.type === 'coding' ? 'Coding Problem' : 'Multiple Choice'}
+              {currentItem.type === 'section-intro'
+                ? `Section ${(currentItem.sectionIndex ?? 0) + 1} of ${currentItem.sectionTotal ?? 1}`
+                : currentItem.type === 'coding'
+                ? 'Coding Problem'
+                : 'Multiple Choice'}
             </span>
-            <span className="text-charcoal-400 text-xs hidden sm:inline">·</span>
-            <div className="flex items-center gap-1">
-              <span className="font-display font-semibold text-xs text-charcoal-400 uppercase tracking-wider">Item</span>
-              <span className="font-display font-bold text-charcoal-900 text-base leading-none">{currentIndex + 1}</span>
-              <span className="text-charcoal-300 text-xs">/</span>
-              <span className="font-display font-medium text-charcoal-400 text-xs">{items.length}</span>
-            </div>
+            {currentItem.type !== 'section-intro' && (
+              <>
+                <span className="text-charcoal-400 text-xs hidden sm:inline">·</span>
+                <div className="flex items-center gap-1">
+                  <span className="font-display font-semibold text-xs text-charcoal-400 uppercase tracking-wider">Item</span>
+                  <span className="font-display font-bold text-charcoal-900 text-base leading-none">{currentIndex + 1}</span>
+                  <span className="text-charcoal-300 text-xs">/</span>
+                  <span className="font-display font-medium text-charcoal-400 text-xs">{items.length}</span>
+                </div>
+              </>
+            )}
           </div>
 
           {tabSwitchCount > 0 && (
@@ -558,26 +641,74 @@ except Exception as e:
             </div>
           )}
 
-          {/* Timer */}
-          <div className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border font-display font-bold text-sm transition-all duration-300 ${
-            isUrgent ? 'bg-red-50 border-red-300 text-red-600 animate-pulse-brand' : isMedium ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-warm-50 border-warm-300 text-charcoal-700'
-          }`}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-            </svg>
-            <span>{fmtTime(timeLeft)}</span>
-          </div>
+          {/* Timer - hidden on section-intro */}
+          {currentItem.type !== 'section-intro' ? (
+            <div className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border font-display font-bold text-sm transition-all duration-300 ${
+              isUrgent ? 'bg-red-50 border-red-300 text-red-600 animate-pulse-brand' : isMedium ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-warm-50 border-warm-300 text-charcoal-700'
+            }`}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span>{fmtTime(timeLeft)}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-warm-200 bg-warm-50 text-charcoal-500 font-display text-xs font-medium">
+              <span>Section Overview</span>
+            </div>
+          )}
         </div>
 
-        <div className="h-1 w-full bg-warm-100">
-          <div className={`h-full transition-all duration-1000 ease-linear ${
-            isUrgent ? 'bg-red-500' : isMedium ? 'bg-amber-500' : 'bg-brand-500'
-          }`} style={{ width: `${timerPct}%` }} />
-        </div>
+        {currentItem.type !== 'section-intro' && (
+          <div className="h-1 w-full bg-warm-100">
+            <div className={`h-full transition-all duration-1000 ease-linear ${
+              isUrgent ? 'bg-red-500' : isMedium ? 'bg-amber-500' : 'bg-brand-500'
+            }`} style={{ width: `${timerPct}%` }} />
+          </div>
+        )}
       </header>
 
       {/* ── Item Content ── */}
       <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6">
+        {/* Section Intro Card */}
+        {currentItem.type === 'section-intro' && (
+          <div className="w-full max-w-lg">
+            <div className={`bg-white border border-warm-200 rounded-3xl shadow-lg overflow-hidden transition-all duration-180 ${
+              animateIn ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-3 scale-95'
+            }`}>
+              <div className="h-2 w-full bg-gradient-to-r from-amber-400 via-brand-500 to-brand-600" />
+              <div className="p-8 sm:p-10 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center mx-auto mb-5 shadow-xs">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+                    <path d="M6 6h10"/>
+                    <path d="M6 10h10"/>
+                  </svg>
+                </div>
+
+                <span className="inline-flex items-center gap-1.5 bg-warm-100 text-charcoal-600 text-xs font-display font-bold uppercase tracking-wider px-3 py-1 rounded-pill mb-3">
+                  Section {(currentItem.sectionIndex ?? 0) + 1} of {currentItem.sectionTotal ?? 1}
+                </span>
+
+                <h2 className="font-display font-extrabold text-charcoal-900 text-2xl sm:text-3xl mb-3">
+                  {currentItem.sectionName}
+                </h2>
+
+                <p className="text-charcoal-500 text-sm leading-relaxed mb-8 max-w-sm mx-auto">
+                  This section contains <span className="font-semibold text-charcoal-800">{currentItem.sectionQuestionCount ?? 0} questions</span>.
+                  Once you start, question timers will apply. Questions within this section are randomized.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={handleSectionIntroNext}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-display font-bold text-sm shadow-brand-sm active:scale-[0.97] transition-all"
+                >
+                  Start Section →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {currentItem.type === 'mcq' && currentItem.mcq && (
           <div className="w-full max-w-2xl">
             <div className={`bg-white border border-warm-200 rounded-3xl shadow-md overflow-hidden transition-all duration-180 ${

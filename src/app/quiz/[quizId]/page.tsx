@@ -163,57 +163,62 @@ export default function CandidateEntry() {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Step 1: Try to insert an in_progress sentinel record.
-    // This achieves two things:
-    //   a) Immediately "reserves" the email so concurrent attempts are blocked.
-    //   b) Works even if RLS blocks SELECT — we rely on the insert response instead.
-    const { error: insertError } = await supabase.from('results').insert([{
-      quiz_id:        quizId,
-      candidate_name: name.trim(),
-      candidate_email: cleanEmail,
-      score:           0,
-      answers:         {},
-      tab_switch_count: 0,
-      submission_type: quiz.type === 'coding' ? 'coding' : quiz.type === 'mixed' ? 'mixed' : 'mcq',
-      status:          'in_progress',
-      code:            null,
-      language:        null,
-      test_results:    null,
-    }]);
-
-    if (insertError) {
-      // If insert fails, assume a duplicate already exists (RLS policy or unique constraint)
-      setEmailError('This email ID has already been used to take this assessment. Only one attempt is permitted per candidate.');
-      setSubmitting(false);
-      return;
-    }
-
-    // Step 2: Fall back: also query to detect if a previous row exists
-    // (covers cases where insert succeeded but a prior row was already there with a different id)
-    const { data: existingResults } = await supabase
+    // Step 1: Check if this candidate already completed an attempt
+    const { data: previousAttempts, error: checkError } = await supabase
       .from('results')
       .select('id, status')
       .eq('quiz_id', quizId)
       .eq('candidate_email', cleanEmail);
 
-    // If there are 2+ rows it means they had a prior attempt before our sentinel insert
-    if (existingResults && existingResults.length > 1) {
-      // Clean up the sentinel we just inserted
-      const sentinelId = existingResults.find(r => r.status === 'in_progress')?.id;
-      if (sentinelId) await supabase.from('results').delete().eq('id', sentinelId);
+    if (checkError) {
+      console.warn('Could not query previous results:', checkError);
+    } else if (previousAttempts && previousAttempts.length > 0) {
+      // If candidate already has an attempt
       setEmailError('This email ID has already been used to take this assessment. Only one attempt is permitted per candidate.');
       setSubmitting(false);
       return;
     }
 
-    // Store sentinel row ID so the play/code pages can update it (instead of inserting a new row)
-    const sentinelId = existingResults?.[0]?.id ?? null;
+    // Step 2: Insert sentinel in_progress row
+    const { data: insertedData, error: insertError } = await supabase
+      .from('results')
+      .insert([{
+        quiz_id:        quizId,
+        candidate_name: name.trim(),
+        candidate_email: cleanEmail,
+        score:           0,
+        answers:         {},
+        tab_switch_count: 0,
+        submission_type: quiz.type === 'coding' ? 'coding' : quiz.type === 'mixed' ? 'mixed' : 'mcq',
+        status:          'in_progress',
+        code:            null,
+        language:        null,
+        test_results:    null,
+      }])
+      .select('id');
+
+    if (insertError) {
+      console.error('Error creating assessment attempt in results:', insertError);
+
+      // Unique constraint violation (code 23505) or duplicate key
+      if (insertError.code === '23505' || insertError.message?.toLowerCase().includes('unique') || insertError.message?.toLowerCase().includes('duplicate')) {
+        setEmailError('This email ID has already been used to take this assessment. Only one attempt is permitted per candidate.');
+      } else {
+        // Real DB error (e.g. missing column, RLS violation, etc.)
+        setEmailError(`Database error: ${insertError.message || 'Failed to start assessment. Please check DB permissions/schema.'}`);
+      }
+      setSubmitting(false);
+      return;
+    }
+
+    // Store sentinel row ID so the play/code pages can update it upon final submission
+    const sentinelId = insertedData?.[0]?.id ?? null;
     if (sentinelId) localStorage.setItem(`result_id_${quizId}`, sentinelId);
 
     localStorage.setItem(`candidate_name_${quizId}`, name.trim());
     localStorage.setItem(`candidate_email_${quizId}`, cleanEmail);
 
-    /* ── Key change: route based on quiz type ── */
+    /* ── Route based on quiz type ── */
     if (quiz.type === 'coding') {
       router.push(`/quiz/${quizId}/code`);
     } else {
