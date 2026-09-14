@@ -123,6 +123,11 @@ const TIPS: Record<QuizType, { icon: string; title: string; desc: string }[]> = 
     { icon: '🔒', title: 'Use private test cases',    desc: 'Candidates see public cases during Test Run. Private cases only run on Submit.' },
     { icon: '🌐', title: 'Pick languages wisely',     desc: 'Offer Python3 for general roles; add C or JavaScript for domain-specific assessments.' },
   ],
+  mixed: [
+    { icon: '⚡', title: 'Combine question types',    desc: 'Test theoretical concepts with MCQs and practical implementation with coding.' },
+    { icon: '⏳', title: 'Custom timers',            desc: 'Each question has its own timer; the total assessment duration is calculated automatically.' },
+    { icon: '📋', title: 'Flexible structure',        desc: 'Add MCQs and coding problems in any sequence to evaluate full-stack competency.' },
+  ],
 };
 
 const STEPS: Record<QuizType, { label: string }[]> = {
@@ -135,6 +140,11 @@ const STEPS: Record<QuizType, { label: string }[]> = {
     { label: 'Fill in quiz details'            },
     { label: 'Add coding question + test cases'},
     { label: 'Share link with candidates'      },
+  ],
+  mixed: [
+    { label: 'Fill in quiz details'             },
+    { label: 'Add MCQ & coding questions'       },
+    { label: 'Share link with candidates'       },
   ],
 };
 
@@ -218,13 +228,13 @@ export default function CreateQuizPage() {
                 <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider block mb-3">
                   Assessment Type
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <TypeCard
                     type="mcq"
                     selected={quizType === 'mcq'}
                     onClick={() => setQuizType('mcq')}
                     title="MCQ Assessment"
-                    description="Multiple choice questions, each with a time limit per question."
+                    description="Multiple choice questions with optional images and per-question timers."
                     icon={
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M9 11l3 3L22 4"/>
@@ -245,6 +255,19 @@ export default function CreateQuizPage() {
                       </svg>
                     }
                   />
+                  <TypeCard
+                    type="mixed"
+                    selected={quizType === 'mixed'}
+                    onClick={() => setQuizType('mixed')}
+                    title="Mixed Assessment"
+                    description="Combine MCQ and coding questions in any order in a single assessment."
+                    icon={
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                        <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                      </svg>
+                    }
+                  />
                 </div>
 
                 {/* Type badge confirmation */}
@@ -252,13 +275,19 @@ export default function CreateQuizPage() {
                   mt-3 flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium
                   ${quizType === 'coding'
                     ? 'bg-brand-50 border border-brand-100 text-brand-700'
+                    : quizType === 'mixed'
+                    ? 'bg-purple-50 border border-purple-100 text-purple-700'
                     : 'bg-green-50 border border-green-100 text-green-700'
                   }
                 `}>
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${quizType === 'coding' ? 'bg-brand-500' : 'bg-green-500'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    quizType === 'coding' ? 'bg-brand-500' : quizType === 'mixed' ? 'bg-purple-500' : 'bg-green-500'
+                  }`} />
                   {quizType === 'mcq'
-                    ? 'MCQ selected — candidates will answer multiple choice questions with a per-question timer.'
-                    : 'Coding selected — candidates will solve problems in a live code editor with test cases.'
+                    ? 'MCQ selected — candidates will answer multiple choice questions with per-question timers.'
+                    : quizType === 'coding'
+                    ? 'Coding selected — candidates will solve problems in a live code editor with test cases.'
+                    : 'Mixed selected — candidates will solve both MCQs and coding problems in a single assessment.'
                   }
                 </div>
               </div>

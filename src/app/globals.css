@@ -349,7 +349,12 @@
   }
 
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:text-white hover:bg-brand-700 active:scale-[0.97] shadow-brand-sm hover:shadow-brand-md focus-visible:ring-brand-500;
+    @apply btn bg-brand-600 text-white active:scale-[0.97] shadow-brand-sm focus-visible:ring-brand-500;
+  }
+  .btn-primary:hover {
+    background-color: var(--brand-700);
+    color: #ffffff;
+    box-shadow: 0 0 0 4px rgb(232 72 58 / 0.18), 0 4px 14px 0 rgb(232 72 58 / 0.28);
   }
 
   .btn-secondary {
@@ -361,7 +366,12 @@
   }
 
   .btn-danger {
-    @apply btn bg-red-600 text-white hover:text-white hover:bg-red-700 active:scale-[0.97] shadow-sm focus-visible:ring-red-500;
+    @apply btn bg-red-600 text-white active:scale-[0.97] shadow-sm focus-visible:ring-red-500;
+  }
+  .btn-danger:hover {
+    background-color: #dc2626;
+    color: #ffffff;
+    box-shadow: 0 0 0 4px rgb(220 38 38 / 0.15), 0 4px 12px 0 rgb(220 38 38 / 0.25);
   }
 
   .btn-sm {

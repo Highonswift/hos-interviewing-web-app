@@ -123,6 +123,7 @@ function InfoRow({ icon, text }: { icon: React.ReactNode; text: string }) {
 /* ─── Main page ──────────────────────────────────────────────────────────── */
 export default function SuccessPage() {
   const [visible, setVisible] = useState(false);
+  const [closedAttempted, setClosedAttempted] = useState(false);
 
   useEffect(() => {
     // Slight delay so CSS animation plays after hydration
@@ -207,7 +208,7 @@ export default function SuccessPage() {
                       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
                     </svg>
                   }
-                  text="Your recruiter will contact you with the next steps."
+                  text="The recruitement team will contact you with the next steps."
                 />
 
                 <InfoRow
@@ -216,7 +217,7 @@ export default function SuccessPage() {
                       <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>
                     </svg>
                   }
-                  text="Results are typically reviewed within 1–2 business days."
+                  text="Results will be updated to you shortly."
                 />
 
                 <InfoRow
@@ -229,24 +230,39 @@ export default function SuccessPage() {
                 />
               </div>
 
-              {/* Close button */}
-              <button
-                onClick={() => window.close()}
-                className="
-                  w-full flex items-center justify-center gap-2.5
-                  bg-charcoal-900 hover:bg-charcoal-800
-                  text-white font-display font-semibold text-[0.9375rem]
-                  py-3.5 px-5 rounded-2xl
-                  shadow-sm hover:shadow-md
-                  active:scale-[0.97]
-                  transition-all duration-200
-                "
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-                </svg>
-                Close this window
-              </button>
+              {/* Close button with browser fallback */}
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.close();
+                    // Fallback if browser blocks script-initiated window.close()
+                    setTimeout(() => {
+                      setClosedAttempted(true);
+                    }, 300);
+                  }}
+                  className="
+                    w-full flex items-center justify-center gap-2.5
+                    bg-charcoal-900 hover:bg-charcoal-800
+                    text-white font-display font-semibold text-[0.9375rem]
+                    py-3.5 px-5 rounded-2xl
+                    shadow-sm hover:shadow-md
+                    active:scale-[0.97]
+                    transition-all duration-200
+                  "
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                  </svg>
+                  Close this page
+                </button>
+
+                {closedAttempted && (
+                  <p className="text-center text-xs text-charcoal-500 bg-warm-100 border border-warm-200 rounded-xl py-2 px-3 animate-fade-in font-medium">
+                    You can safely close this browser tab (Ctrl+W or ⌘+W) to finish.
+                  </p>
+                )}
+              </div>
 
             </div>
           </div>

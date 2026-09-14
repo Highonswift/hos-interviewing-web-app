@@ -1,0 +1,50 @@
+﻿# --- Dependencies ---
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# --- Environment Variables ---
+# Never commit secrets -- copy .env.example and fill in your own values
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+# --- Next.js Build Output ---
+.next/
+out/
+build/
+
+# --- TypeScript ---
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Testing ---
+coverage/
+
+# --- Editor & OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Logs ---
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# --- Misc ---
+.vercel
+.turbo
+.cache/

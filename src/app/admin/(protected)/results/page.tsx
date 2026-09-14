@@ -100,14 +100,45 @@ export default function ViewResults() {
       .then(({ data }) => { setQuizzes(data || []); setLoadingQuizzes(false); });
   }, []);
 
+  const [maxScore, setMaxScore] = useState<number>(0);
+
   /* Fetch results for chosen quiz */
   const fetchResults = async (quiz: Quiz) => {
     setSelectedQuiz(quiz);
     setSelectOpen(false);
     setLoadingResults(true);
     setSearch('');
+
     const { data } = await supabase.from('results').select('*').eq('quiz_id', quiz.id);
     setResults(data || []);
+
+    // Calculate max possible score based on quiz type
+    if (quiz.type === 'mixed') {
+      const { data: qis } = await supabase.from('quiz_items').select('*').eq('quiz_id', quiz.id);
+      if (qis) {
+        // Each MCQ is 1 pt, each coding problem is evaluated against test cases
+        const mcqCount = qis.filter(i => i.item_type === 'mcq').length;
+        const codeIds = qis.filter(i => i.item_type === 'coding').map(i => i.item_id);
+        let tcCount = 0;
+        if (codeIds.length > 0) {
+          const { count } = await supabase.from('test_cases').select('*', { count: 'exact', head: true }).in('question_id', codeIds);
+          tcCount = count ?? 0;
+        }
+        setMaxScore(mcqCount + tcCount);
+      }
+    } else if (quiz.type === 'coding') {
+      const { data: codeQs } = await supabase.from('coding_questions').select('id').eq('quiz_id', quiz.id);
+      if (codeQs && codeQs.length > 0) {
+        const { count } = await supabase.from('test_cases').select('*', { count: 'exact', head: true }).in('question_id', codeQs.map(q => q.id));
+        setMaxScore(count ?? 0);
+      } else {
+        setMaxScore(0);
+      }
+    } else {
+      const { count } = await supabase.from('questions').select('*', { count: 'exact', head: true }).eq('quiz_id', quiz.id);
+      setMaxScore(count ?? (data?.[0] ? Object.keys(data[0].answers ?? {}).length : 0));
+    }
+
     setLoadingResults(false);
   };
 
@@ -118,9 +149,7 @@ export default function ViewResults() {
   };
 
   /* Derived: filtered + sorted results */
-  const totalQs = results[0]
-    ? Object.keys(results[0].answers ?? {}).length
-    : 0;
+  const totalQs = maxScore > 0 ? maxScore : (results[0] ? Object.keys(results[0].answers ?? {}).length : 0);
 
   const processed = useMemo(() => {
     let list = results.filter(r =>
@@ -314,10 +343,10 @@ export default function ViewResults() {
                       <tr>
                         <th className="px-4 py-3 text-left font-display font-semibold text-xs uppercase tracking-wider text-charcoal-500 w-10">#</th>
                         <SortTh label="Candidate"    sortKey="candidate_name"   current={sortKey} dir={sortDir} onSort={handleSort} />
+                        <th className="px-4 py-3 text-left font-display font-semibold text-xs uppercase tracking-wider text-charcoal-500">Status</th>
                         <SortTh label="Score"        sortKey="score"            current={sortKey} dir={sortDir} onSort={handleSort} />
                         <th className="px-4 py-3 text-left font-display font-semibold text-xs uppercase tracking-wider text-charcoal-500">Performance</th>
                         <SortTh label="Tab Switches" sortKey="tab_switch_count" current={sortKey} dir={sortDir} onSort={handleSort} />
-                        <th className="px-4 py-3 text-left font-display font-semibold text-xs uppercase tracking-wider text-charcoal-500">Submitted</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -340,8 +369,23 @@ export default function ViewResults() {
                                     {r.candidate_name.slice(0, 2).toUpperCase()}
                                   </span>
                                 </div>
-                                <span className="font-display font-semibold text-charcoal-800 text-sm">{r.candidate_name}</span>
+                                <div>
+                                  <span className="font-display font-semibold text-charcoal-800 text-sm block leading-tight">{r.candidate_name}</span>
+                                  {r.candidate_email ? (
+                                    <span className="text-xs text-charcoal-400 font-mono block mt-0.5">{r.candidate_email}</span>
+                                  ) : (
+                                    <span className="text-[11px] text-charcoal-300 italic block mt-0.5">No email recorded</span>
+                                  )}
+                                </div>
                               </div>
+                            </td>
+
+                            {/* Status */}
+                            <td className="px-4 py-3.5">
+                              <span className="inline-flex items-center gap-1.5 font-display font-semibold text-xs px-2.5 py-1 rounded-pill border bg-green-50 text-green-700 border-green-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                                {r.status === 'timed_out' ? 'Timed Out' : 'Done'}
+                              </span>
                             </td>
 
                             {/* Score */}
@@ -375,11 +419,6 @@ export default function ViewResults() {
                                 )}
                                 {r.tab_switch_count === 0 ? 'Clean' : `${r.tab_switch_count} switch${r.tab_switch_count > 1 ? 'es' : ''}`}
                               </span>
-                            </td>
-
-                            {/* Submitted at */}
-                            <td className="px-4 py-3.5 text-xs text-charcoal-400 font-medium whitespace-nowrap">
-                              {r.created_at ? fmtDate(r.created_at) : '—'}
                             </td>
                           </tr>
                         );

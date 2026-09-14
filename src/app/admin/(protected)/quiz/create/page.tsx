@@ -121,7 +121,12 @@ const TIPS: Record<QuizType, { icon: string; title: string; desc: string }[]> = 
   coding: [
     { icon: '💡', title: 'Write a clear problem',     desc: 'Include examples, constraints, and expected input/output format in the question.' },
     { icon: '🔒', title: 'Use private test cases',    desc: 'Candidates see public cases during Test Run. Private cases only run on Submit.' },
-    { icon: '🌐', title: 'Pick languages wisely',     desc: 'Offer Python3 for general roles; add C or JavaScript for domain-specific assessments.' },
+    { icon: '🌐', title: 'Pick languages wisely',     desc: 'Offer Python3 for general roles; add JavaScript for domain-specific assessments.' },
+  ],
+  mixed: [
+    { icon: '🔀', title: 'Mix question types freely',  desc: 'Add MCQ and coding questions in any order — candidates see them sequentially.' },
+    { icon: '⏱️', title: 'Total time auto-calculated', desc: 'Assessment duration is the sum of all individual question time limits.' },
+    { icon: '🖼️', title: 'Add images to MCQs',        desc: 'Attach diagrams or figures to aptitude-style MCQ questions for visual context.' },
   ],
 };
 
@@ -136,7 +141,31 @@ const STEPS: Record<QuizType, { label: string }[]> = {
     { label: 'Add coding question + test cases'},
     { label: 'Share link with candidates'      },
   ],
+  mixed: [
+    { label: 'Fill in quiz details'             },
+    { label: 'Add MCQ & coding questions'       },
+    { label: 'Share link with candidates'       },
+  ],
 };
+
+function generateShortCode(): string {
+  const chars = '23456789abcdefghjkmnpqrstuvwxyz';
+  let res = '';
+  for (let i = 0; i < 6; i++) {
+    res += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return res;
+}
+
+function getLocalDatetimeString(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
 
 /* ─── Main page ──────────────────────────────────────────────────────────── */
 export default function CreateQuizPage() {
@@ -145,8 +174,16 @@ export default function CreateQuizPage() {
   const [quizType,    setQuizType]    = useState<QuizType>('mcq');
   const [title,       setTitle]       = useState('');
   const [domain,      setDomain]      = useState('');
-  const [activeFrom,  setActiveFrom]  = useState('');
-  const [activeUntil, setActiveUntil] = useState('');
+
+  // Default times in candidate's local time: now and +2 hours
+  const [activeFrom,  setActiveFrom]  = useState(() => {
+    const now = new Date();
+    return getLocalDatetimeString(now);
+  });
+  const [activeUntil, setActiveUntil] = useState(() => {
+    const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    return getLocalDatetimeString(later);
+  });
   const [creating,    setCreating]    = useState(false);
   const [error,       setError]       = useState<string | null>(null);
 
@@ -167,6 +204,8 @@ export default function CreateQuizPage() {
       return;
     }
 
+    const shortCode = generateShortCode();
+
     const { data, error } = await supabase
       .from('quizzes')
       .insert([{
@@ -176,6 +215,7 @@ export default function CreateQuizPage() {
         active_from:  from.toISOString(),
         active_until: until.toISOString(),
         admin_id:     session.user.id,
+        short_code:   shortCode,
       }])
       .select();
 
@@ -192,7 +232,7 @@ export default function CreateQuizPage() {
   const windowValid = activeFrom && activeUntil && new Date(activeUntil) > new Date(activeFrom);
 
   return (
-    <div className="max-w-4xl mx-auto w-full animate-fade-up">
+    <div className="w-full max-w-5xl mx-auto animate-fade-up">
 
       {/* ── Page header ── */}
       <div className="mb-7">
@@ -204,10 +244,9 @@ export default function CreateQuizPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
+      <div>
         {/* ── Form ── */}
-        <div className="lg:col-span-2">
+        <div className="w-full">
           <div className="bg-white border border-warm-200 rounded-3xl shadow-sm overflow-hidden">
             <div className="h-1.5 w-full bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700" />
 
@@ -218,13 +257,13 @@ export default function CreateQuizPage() {
                 <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider block mb-3">
                   Assessment Type
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <TypeCard
                     type="mcq"
                     selected={quizType === 'mcq'}
                     onClick={() => setQuizType('mcq')}
                     title="MCQ Assessment"
-                    description="Multiple choice questions, each with a time limit per question."
+                    description="Multiple choice questions with optional images, each with a per-question timer."
                     icon={
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M9 11l3 3L22 4"/>
@@ -245,6 +284,19 @@ export default function CreateQuizPage() {
                       </svg>
                     }
                   />
+                  <TypeCard
+                    type="mixed"
+                    selected={quizType === 'mixed'}
+                    onClick={() => setQuizType('mixed')}
+                    title="Mixed Assessment"
+                    description="Combine MCQ and coding questions in any order in a single assessment."
+                    icon={
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                        <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                      </svg>
+                    }
+                  />
                 </div>
 
                 {/* Type badge confirmation */}
@@ -252,13 +304,19 @@ export default function CreateQuizPage() {
                   mt-3 flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium
                   ${quizType === 'coding'
                     ? 'bg-brand-50 border border-brand-100 text-brand-700'
+                    : quizType === 'mixed'
+                    ? 'bg-purple-50 border border-purple-100 text-purple-700'
                     : 'bg-green-50 border border-green-100 text-green-700'
                   }
                 `}>
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${quizType === 'coding' ? 'bg-brand-500' : 'bg-green-500'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    quizType === 'coding' ? 'bg-brand-500' : quizType === 'mixed' ? 'bg-purple-500' : 'bg-green-500'
+                  }`} />
                   {quizType === 'mcq'
-                    ? 'MCQ selected — candidates will answer multiple choice questions with a per-question timer.'
-                    : 'Coding selected — candidates will solve problems in a live code editor with test cases.'
+                    ? 'MCQ selected — candidates answer multiple choice questions with a per-question timer.'
+                    : quizType === 'coding'
+                    ? 'Coding selected — candidates solve problems in a live code editor with test cases.'
+                    : 'Mixed selected — candidates get both MCQ and coding questions in one seamless flow.'
                   }
                 </div>
               </div>
@@ -278,7 +336,7 @@ export default function CreateQuizPage() {
 
               <Field
                 id="title" label="Quiz Title"
-                placeholder={quizType === 'mcq' ? 'e.g. SDE-1 Technical Assessment' : 'e.g. DSA Live Coding Round'}
+                placeholder={quizType === 'mcq' ? 'e.g. SDE-1 Technical Assessment' : quizType === 'coding' ? 'e.g. DSA Live Coding Round' : 'e.g. Full-Stack Developer Round'}
                 value={title} onChange={setTitle}
                 hint="Use a clear, descriptive name the candidate will see."
               />
@@ -342,88 +400,15 @@ export default function CreateQuizPage() {
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                       </svg>
-                      Create & Add {quizType === 'mcq' ? 'Questions' : 'Problem'}
+                      Create & Add {quizType === 'mcq' ? 'Questions' : quizType === 'coding' ? 'Problem' : 'Questions'}
                     </>
                   )}
                 </button>
                 <p className="text-xs text-charcoal-400">
-                  You'll be taken to the {quizType === 'mcq' ? 'question' : 'problem'} editor next.
+                  You'll be taken to the {quizType === 'mixed' ? 'mixed question' : quizType === 'mcq' ? 'question' : 'problem'} editor next.
                 </p>
               </div>
             </form>
-          </div>
-        </div>
-
-        {/* ── Right panel — steps + tips ── */}
-        <div className="lg:col-span-1 flex flex-col gap-4">
-
-          {/* Steps */}
-          <div className="bg-white border border-warm-200 rounded-3xl shadow-sm p-5">
-            <p className="font-display font-bold text-charcoal-800 text-sm mb-4">How it works</p>
-            <div className="flex flex-col gap-4">
-              {STEPS[quizType].map((s, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <span className={`
-                    w-6 h-6 rounded-full flex items-center justify-center
-                    font-display font-bold text-xs flex-shrink-0
-                    transition-all duration-200
-                    ${i === 0
-                      ? 'bg-brand-600 text-white shadow-brand-sm'
-                      : 'bg-warm-100 text-charcoal-400'
-                    }
-                  `}>
-                    {i + 1}
-                  </span>
-                  <span className={`text-sm font-medium transition-colors duration-200 ${i === 0 ? 'text-charcoal-900' : 'text-charcoal-400'}`}>
-                    {s.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Tips */}
-          <div className="bg-warm-50 border border-warm-200 rounded-3xl p-5 flex flex-col gap-4">
-            <p className="font-display font-bold text-charcoal-800 text-sm">
-              Tips for {quizType === 'mcq' ? 'MCQ' : 'Coding'} assessments
-            </p>
-            {TIPS[quizType].map((t, i) => (
-              <TipCard key={i} icon={t.icon} title={t.title} desc={t.desc} />
-            ))}
-          </div>
-
-          {/* Feature comparison — shows when toggling */}
-          <div className="bg-white border border-warm-200 rounded-3xl p-5">
-            <p className="font-display font-bold text-charcoal-800 text-sm mb-3">Features</p>
-            <div className="space-y-2">
-              {[
-                { label: 'Per-question timer',    mcq: true,  coding: true  },
-                { label: 'Tab-switch detection',  mcq: true,  coding: true  },
-                { label: 'Date window control',   mcq: true,  coding: true  },
-                { label: 'Randomised questions',  mcq: true,  coding: false },
-                { label: 'Multi-language editor', mcq: false, coding: true  },
-                { label: 'Public test cases',     mcq: false, coding: true  },
-                { label: 'Private test cases',    mcq: false, coding: true  },
-              ].map(f => {
-                const active = quizType === 'mcq' ? f.mcq : f.coding;
-                return (
-                  <div key={f.label} className="flex items-center justify-between gap-2">
-                    <span className={`text-xs font-medium transition-colors duration-150 ${active ? 'text-charcoal-700' : 'text-charcoal-300'}`}>
-                      {f.label}
-                    </span>
-                    {active ? (
-                      <svg width="13" height="13" className="text-green-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    ) : (
-                      <svg width="13" height="13" className="text-warm-300 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                      </svg>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </div>
       </div>

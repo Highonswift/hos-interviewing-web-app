@@ -8,6 +8,19 @@ import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
+function toLocalDatetimeInput(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 function quizStatus(quiz: Quiz): 'upcoming' | 'active' | 'ended' {
   const now   = Date.now();
   const from  = new Date(quiz.active_from).getTime();
@@ -158,8 +171,8 @@ function EditDatesModal({
   onSave: (from: string, until: string) => void;
   saving: boolean;
 }) {
-  const [newFrom,  setNewFrom]  = useState(quiz.active_from.slice(0, 16));
-  const [newUntil, setNewUntil] = useState(quiz.active_until.slice(0, 16));
+  const [newFrom,  setNewFrom]  = useState(() => toLocalDatetimeInput(quiz.active_from));
+  const [newUntil, setNewUntil] = useState(() => toLocalDatetimeInput(quiz.active_until));
   const [err, setErr] = useState('');
 
   const handleSave = () => {
@@ -235,7 +248,7 @@ function QuizCard({
   onEdit:   (q: Quiz) => void;
   onDelete: (q: Quiz) => void;
   copiedId: string | null;
-  onCopy:   (id: string) => void;
+  onCopy:   (quiz: Quiz) => void;
 }) {
   const status = quizStatus(quiz);
   return (
@@ -272,14 +285,14 @@ function QuizCard({
           </div>
         </div>
 
-        {/* Quiz link preview */}
-        <div className="flex items-center gap-2 bg-warm-50 border border-warm-200 rounded-xl px-3 py-2 mt-3">
-          <svg width="12" height="12" className="text-charcoal-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {/* Quiz short link preview */}
+        <div className="flex items-center gap-2 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2 mt-3">
+          <svg width="12" height="12" className="text-brand-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
           </svg>
-          <span className="text-xs text-charcoal-400 font-mono truncate flex-1">
-            {typeof window !== 'undefined' ? window.location.origin : ''}/quiz/{quiz.id}
+          <span className="text-xs text-brand-700 font-mono truncate flex-1 font-medium">
+            {typeof window !== 'undefined' ? window.location.origin : ''}/q/{quiz.short_code || quiz.id.slice(0, 8)}
           </span>
         </div>
       </div>
@@ -301,7 +314,7 @@ function QuizCard({
 
         {/* Copy link */}
         <button
-          onClick={() => onCopy(quiz.id)}
+          onClick={() => onCopy(quiz)}
           className={`inline-flex items-center gap-1.5 text-xs font-display font-semibold px-3 py-1.5 rounded-xl border transition-all duration-200 ${
             copiedId === quiz.id
               ? 'bg-green-100 text-green-700 border-green-200'
@@ -311,7 +324,7 @@ function QuizCard({
           {copiedId === quiz.id ? (
             <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Copied!</>
           ) : (
-            <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>Copy Link</>
+            <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>Copy Short Link</>
           )}
         </button>
 
@@ -377,9 +390,10 @@ export default function ManageQuizzesPage() {
   useEffect(() => { fetchQuizzes(); }, [fetchQuizzes]);
 
   /* Handlers */
-  const handleCopy = (quizId: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/quiz/${quizId}`);
-    setCopiedId(quizId);
+  const handleCopy = (quiz: Quiz) => {
+    const code = quiz.short_code || quiz.id.slice(0, 8);
+    navigator.clipboard.writeText(`${window.location.origin}/q/${code}`);
+    setCopiedId(quiz.id);
     setTimeout(() => setCopiedId(null), 2000);
   };
 

@@ -398,27 +398,39 @@ export default function CandidateCodePage() {
       scoresRef.current[currentProblem.id] = result?.passed ?? 0;
 
       if (isLastProblem) {
-        const candidateName = localStorage.getItem(`candidate_name_${quizId}`) ?? 'Unknown';
-        const totalScore    = Object.values(scoresRef.current).reduce((a, b) => a + b, 0);
+        const candidateName  = localStorage.getItem(`candidate_name_${quizId}`) ?? 'Unknown';
+        const candidateEmail = localStorage.getItem(`candidate_email_${quizId}`) ?? null;
+        const sentinelId     = localStorage.getItem(`result_id_${quizId}`) ?? null;
+        const totalScore     = Object.values(scoresRef.current).reduce((a, b) => a + b, 0);
         const allResults: TestCaseResult[] = result?.results ?? [];
 
-        await supabase.from('results').insert([{
+        const payload = {
           quiz_id:          quizId,
           candidate_name:   candidateName,
+          candidate_email:  candidateEmail,
           score:            totalScore,
           answers:          {},
           tab_switch_count: tabSwitchCount,
           submission_type:  'coding',
+          status:           'completed',
           code:             currentCode,
           language:         currentLang,
           test_results:     allResults,
-        }]);
+        };
+
+        if (sentinelId) {
+          await supabase.from('results').update(payload).eq('id', sentinelId);
+        } else {
+          await supabase.from('results').insert([payload]);
+        }
 
         problems.forEach(p => {
           localStorage.removeItem(`code_q_${p.id}`);
           localStorage.removeItem(`lang_q_${p.id}`);
         });
         localStorage.removeItem(`candidate_name_${quizId}`);
+        localStorage.removeItem(`candidate_email_${quizId}`);
+        localStorage.removeItem(`result_id_${quizId}`);
         if (timerRef.current) clearInterval(timerRef.current);
 
         router.push(`/quiz/${quizId}/success`);

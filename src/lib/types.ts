@@ -1,6 +1,17 @@
-export type QuizType = 'mcq' | 'coding';
+export type QuizType = 'mcq' | 'coding' | 'mixed';
 
 export type CodingLanguage = 'python3' | 'javascript';
+
+export type QuizItemType = 'mcq' | 'coding';
+
+export interface QuizItem {
+  id:         string;
+  quiz_id:    string;
+  item_type:  QuizItemType;
+  item_id:    string;
+  position:   number;
+  created_at: string;
+}
 
 export const LANGUAGE_META: Record<
   CodingLanguage,
@@ -61,6 +72,7 @@ export interface Quiz {
   admin_id:     string;
   created_at:   string;
   type:         QuizType;
+  short_code?:  string | null;
 }
 
 export interface Question {
@@ -70,6 +82,7 @@ export interface Question {
   options:             string[];
   correct_answer:      string;
   time_limit_seconds:  number;
+  image_url?:          string | null;
   created_at:          string;
 }
 
@@ -77,11 +90,13 @@ export interface Result {
   id:               string;
   quiz_id:          string;
   candidate_name:   string;
+  candidate_email?: string | null;
   created_at:       string;
   score:            number;
   answers:          Record<string, string>;
   tab_switch_count: number;
-  submission_type:  'mcq' | 'coding' | null;
+  submission_type:  'mcq' | 'coding' | 'mixed' | null;
+  status?:          'completed' | 'in_progress' | 'timed_out' | null;
   code:             string | null;
   language:         CodingLanguage | null;
   test_results:     TestCaseResult[] | null;

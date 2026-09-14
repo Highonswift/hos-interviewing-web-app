@@ -5,13 +5,23 @@ import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import {
   Question, Quiz, CodingQuestion, TestCase,
-  CodingLanguage, LANGUAGE_META,
+  CodingLanguage, LANGUAGE_META, QuizItem, QuizItemType,
 } from '@/lib/types';
 import Link from 'next/link';
 
 const OPTION_LABELS  = ['A', 'B', 'C', 'D'];
 const ALL_LANGUAGES: CodingLanguage[] = ['python3', 'javascript'];
 const TIME_PRESETS   = [600, 900, 1200, 1800, 2700, 3600];
+
+async function uploadQuestionImage(file: File, quizId: string): Promise<string | null> {
+  const ext = file.name.split('.').pop() ?? 'jpg';
+  const path = `${quizId}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
+    .from('question-images').upload(path, file, { upsert: true, contentType: file.type });
+  if (error) { console.error('Image upload failed:', error.message); return null; }
+  const { data } = supabase.storage.from('question-images').getPublicUrl(path);
+  return data.publicUrl;
+}
 
 function fmtSeconds(s: number) {
   const m = Math.floor(s / 60);
@@ -111,6 +121,15 @@ function TimeLimitPicker({ presets, value, onChange }: {
 function PageHeader({ quiz, questionCount, countLabel }: {
   quiz: Quiz; questionCount: number; countLabel: string;
 }) {
+  const [copied, setCopied] = useState(false);
+  const shortCode = quiz.short_code || quiz.id.slice(0, 8);
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(`${window.location.origin}/q/${shortCode}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div>
       <Link href="/admin/quiz/manage"
@@ -121,7 +140,7 @@ function PageHeader({ quiz, questionCount, countLabel }: {
         </svg>
         Back to Manage Quizzes
       </Link>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-display font-extrabold text-charcoal-900 text-2xl sm:text-3xl tracking-tight">
             {quiz.title}
@@ -130,12 +149,17 @@ function PageHeader({ quiz, questionCount, countLabel }: {
             <span className={`inline-flex items-center gap-1.5 text-xs font-display font-semibold px-2.5 py-1 rounded-pill border ${
               quiz.type === 'coding'
                 ? 'bg-brand-50 text-brand-700 border-brand-200'
+                : quiz.type === 'mixed'
+                ? 'bg-purple-50 text-purple-700 border-purple-200'
                 : 'bg-green-50 text-green-700 border-green-200'}`}>
-              {quiz.type === 'coding'
-                ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/></svg>
-              }
-              {quiz.type === 'coding' ? 'Coding' : 'MCQ'}
+              {quiz.type === 'coding' ? (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              ) : quiz.type === 'mixed' ? (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+              ) : (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/></svg>
+              )}
+              {quiz.type === 'coding' ? 'Coding' : quiz.type === 'mixed' ? 'Mixed' : 'MCQ'}
             </span>
             {quiz.domain && (
               <span className="text-xs font-medium text-charcoal-400 bg-warm-100 border border-warm-200 px-2.5 py-1 rounded-pill">
@@ -145,11 +169,33 @@ function PageHeader({ quiz, questionCount, countLabel }: {
             <span className="text-charcoal-400 text-xs">·</span>
             <span className="text-charcoal-500 text-xs font-medium">{questionCount} {countLabel}</span>
             <span className="text-charcoal-400 text-xs">·</span>
-            <span className="font-mono text-[10px] text-charcoal-400 bg-warm-100 border border-warm-200 px-2 py-0.5 rounded-lg">
-              {quiz.id}
+            <span className="font-mono text-[11px] text-brand-600 bg-brand-50 border border-brand-100 px-2.5 py-0.5 rounded-lg font-semibold">
+              /q/{shortCode}
             </span>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={handleCopyLink}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl font-display font-semibold text-xs transition-all duration-200 shadow-sm ${
+            copied
+              ? 'bg-green-100 text-green-700 border border-green-200'
+              : 'bg-brand-600 hover:bg-brand-700 text-white shadow-brand-sm'
+          }`}
+        >
+          {copied ? (
+            <>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Short Link Copied!
+            </>
+          ) : (
+            <>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              Copy Short Link
+            </>
+          )}
+        </button>
       </div>
     </div>
   );
@@ -170,6 +216,10 @@ function MCQEditor({ quiz, onCountChange }: {
   const [deletingQ,   setDeletingQ]   = useState<Question|null>(null);
   const [deletingQQ,  setDeletingQQ]  = useState(false);
 
+  const [imageFile,    setImageFile]    = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadingImg, setUploadingImg] = useState(false);
+
   const fetchQuestions = useCallback(async () => {
     const { data } = await supabase.from('questions').select('*')
       .eq('quiz_id', quiz.id).order('created_at', { ascending: true });
@@ -182,16 +232,44 @@ function MCQEditor({ quiz, onCountChange }: {
     const next = [...options]; next[i] = v; setOptions(next);
   };
 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const removeSelectedImage = () => {
+    setImageFile(null);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(null);
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (options.some(o => !o.trim())) { alert('Fill in all 4 options.'); return; }
     setSubmitting(true);
+
+    let imageUrl: string | null = null;
+    if (imageFile) {
+      setUploadingImg(true);
+      imageUrl = await uploadQuestionImage(imageFile, quiz.id);
+      setUploadingImg(false);
+    }
+
     const { error } = await supabase.from('questions').insert([{
-      quiz_id: quiz.id, question_text: questionText, options,
-      correct_answer: options[correctIdx], time_limit_seconds: timeLimit,
+      quiz_id: quiz.id,
+      question_text: questionText,
+      options,
+      correct_answer: options[correctIdx],
+      time_limit_seconds: timeLimit,
+      image_url: imageUrl,
     }]);
+
     if (!error) {
       setQuestionText(''); setOptions(['','','','']); setCorrectIdx(0); setTimeLimit(60);
+      removeSelectedImage();
       setSuccessMsg(true); setTimeout(() => setSuccessMsg(false), 2500);
       await fetchQuestions();
     } else alert('Error: ' + error.message);
@@ -240,6 +318,31 @@ function MCQEditor({ quiz, onCountChange }: {
                 value={questionText} onChange={e => setQuestionText(e.target.value)}
                 className="w-full px-4 py-3 rounded-2xl font-body text-sm text-charcoal-900 placeholder:text-charcoal-400 bg-white border-2 border-warm-300 hover:border-warm-400 focus:border-brand-400 focus:outline-none focus:shadow-[0_0_0_3px_rgb(232_72_58_/_0.09)] resize-none transition-all duration-200"/>
             </div>
+
+            {/* Image upload section */}
+            <div className="flex flex-col gap-1.5">
+              <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">
+                Question Image (Optional)
+              </label>
+              {imagePreview ? (
+                <div className="relative w-fit border-2 border-warm-300 rounded-2xl p-2 bg-warm-50 group">
+                  <img src={imagePreview} alt="Question preview" className="max-h-48 rounded-xl object-contain" />
+                  <button type="button" onClick={removeSelectedImage}
+                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-md transition-colors">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="12"/></svg>
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-3 px-4 py-3 border-2 border-dashed border-warm-300 hover:border-brand-400 rounded-2xl cursor-pointer bg-warm-50/50 hover:bg-warm-50 transition-all text-charcoal-500 text-sm">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-charcoal-400">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                  </svg>
+                  <span>Click to attach an image (e.g. diagram, chart, aptitude figure)</span>
+                  <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                </label>
+              )}
+            </div>
+
             <div>
               <div className="flex items-center justify-between mb-2.5">
                 <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Answer Options</label>
@@ -265,10 +368,10 @@ function MCQEditor({ quiz, onCountChange }: {
             </div>
             <TimeLimitPicker presets={[30,45,60,90,120]} value={timeLimit} onChange={setTimeLimit}/>
             <div className="pt-2">
-              <button type="submit" disabled={submitting}
+              <button type="submit" disabled={submitting || uploadingImg}
                 className="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-display font-semibold text-sm px-6 py-3 rounded-2xl shadow-brand-sm hover:shadow-brand-md active:scale-[0.97] transition-all duration-200">
-                {submitting
-                  ? <><svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Adding…</>
+                {submitting || uploadingImg
+                  ? <><svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>{uploadingImg ? 'Uploading image…' : 'Adding…'}</>
                   : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Question</>
                 }
               </button>
@@ -295,7 +398,14 @@ function MCQEditor({ quiz, onCountChange }: {
               <div key={q.id} className="bg-white border border-warm-200 rounded-2xl shadow-xs hover:shadow-sm hover:border-warm-300 transition-all duration-200 overflow-hidden animate-fade-up" style={{ animationDelay: `${idx * 40}ms` }}>
                 <div className="flex items-start gap-3 p-5 pb-3">
                   <span className="flex-shrink-0 w-7 h-7 rounded-xl bg-brand-100 text-brand-700 font-display font-bold text-xs flex items-center justify-center mt-0.5">{idx+1}</span>
-                  <p className="font-display font-semibold text-charcoal-900 text-sm leading-snug flex-1">{q.question_text}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-display font-semibold text-charcoal-900 text-sm leading-snug">{q.question_text}</p>
+                    {q.image_url && (
+                      <div className="mt-2.5">
+                        <img src={q.image_url} alt="Question figure" className="max-h-36 max-w-xs rounded-xl border border-warm-200 object-contain bg-warm-50 p-1" />
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-5 pb-4">
                   {q.options.map((opt, i) => {
@@ -310,10 +420,18 @@ function MCQEditor({ quiz, onCountChange }: {
                   })}
                 </div>
                 <div className="flex items-center justify-between px-5 py-2.5 border-t border-warm-100 bg-warm-50/60">
-                  <span className="flex items-center gap-1.5 text-xs text-charcoal-400 font-medium">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    {q.time_limit_seconds}s limit
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="flex items-center gap-1.5 text-xs text-charcoal-400 font-medium">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      {q.time_limit_seconds}s limit
+                    </span>
+                    {q.image_url && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 bg-brand-50 border border-brand-200 px-2 py-0.5 rounded-pill">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                        Image attached
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => setEditingQ(q)} className="inline-flex items-center gap-1.5 text-xs font-display font-semibold px-3 py-1.5 rounded-xl bg-white text-charcoal-600 hover:bg-warm-100 border border-warm-200 transition-colors">
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -336,7 +454,7 @@ function MCQEditor({ quiz, onCountChange }: {
           <div className="absolute inset-0 bg-charcoal-950/50 backdrop-blur-sm" onClick={() => !savingQ && setEditingQ(null)}/>
           <div className="relative z-10 w-full max-w-lg my-auto bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-scale-in">
             <div className="h-1.5 w-full bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700"/>
-            <MCQEditForm question={editingQ} onCancel={() => setEditingQ(null)} onSave={handleEditSave} saving={savingQ}/>
+            <MCQEditForm question={editingQ} quizId={quiz.id} onCancel={() => setEditingQ(null)} onSave={handleEditSave} saving={savingQ}/>
           </div>
         </div>
       )}
@@ -352,8 +470,8 @@ function MCQEditor({ quiz, onCountChange }: {
   );
 }
 
-function MCQEditForm({ question, onCancel, onSave, saving }: {
-  question: Question; onCancel: () => void;
+function MCQEditForm({ question, quizId, onCancel, onSave, saving }: {
+  question: Question; quizId: string; onCancel: () => void;
   onSave: (u: Partial<Question>) => void; saving: boolean;
 }) {
   const [text,   setText]   = useState(question.question_text);
@@ -361,13 +479,49 @@ function MCQEditForm({ question, onCancel, onSave, saving }: {
   const [ci,     setCi]     = useState(question.options.indexOf(question.correct_answer));
   const [tl,     setTl]     = useState(question.time_limit_seconds);
   const [err,    setErr]    = useState('');
+  const [imageUrl, setImageUrl] = useState<string | null>(question.image_url ?? null);
+  const [newImageFile, setNewImageFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(question.image_url ?? null);
+  const [uploading, setUploading] = useState(false);
+
   const updateOpt = (i: number, v: string) => { const n=[...opts]; n[i]=v; setOpts(n); };
-  const save = () => {
+
+  const handleImagePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setNewImageFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const removeImage = () => {
+    setNewImageFile(null);
+    if (previewUrl && previewUrl !== question.image_url) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setImageUrl(null);
+  };
+
+  const save = async () => {
     if (!text.trim()) { setErr('Question text cannot be empty.'); return; }
     if (opts.some(o => !o.trim())) { setErr('All 4 options must be filled.'); return; }
     setErr('');
-    onSave({ question_text: text, options: opts, correct_answer: opts[ci], time_limit_seconds: tl });
+
+    let finalImageUrl = imageUrl;
+    if (newImageFile) {
+      setUploading(true);
+      finalImageUrl = await uploadQuestionImage(newImageFile, quizId);
+      setUploading(false);
+    }
+
+    onSave({
+      question_text: text,
+      options: opts,
+      correct_answer: opts[ci],
+      time_limit_seconds: tl,
+      image_url: finalImageUrl,
+    });
   };
+
   return (
     <div className="p-6 max-h-[85vh] overflow-y-auto">
       <div className="flex items-center justify-between mb-5">
@@ -383,6 +537,29 @@ function MCQEditForm({ question, onCancel, onSave, saving }: {
           <textarea rows={3} value={text} onChange={e => setText(e.target.value)}
             className="w-full px-4 py-3 rounded-2xl font-body text-sm text-charcoal-900 bg-white border-2 border-warm-300 hover:border-warm-400 focus:border-brand-400 focus:outline-none resize-none transition-all duration-200"/>
         </div>
+
+        {/* Image edit section */}
+        <div className="flex flex-col gap-1.5">
+          <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Question Image</label>
+          {previewUrl ? (
+            <div className="relative w-fit border-2 border-warm-300 rounded-2xl p-2 bg-warm-50 group">
+              <img src={previewUrl} alt="Question figure" className="max-h-48 rounded-xl object-contain" />
+              <button type="button" onClick={removeImage}
+                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-md transition-colors">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="12"/></svg>
+              </button>
+            </div>
+          ) : (
+            <label className="flex items-center gap-3 px-4 py-3 border-2 border-dashed border-warm-300 hover:border-brand-400 rounded-2xl cursor-pointer bg-warm-50/50 hover:bg-warm-50 transition-all text-charcoal-500 text-sm">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-charcoal-400">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+              </svg>
+              <span>Click to attach / change image</span>
+              <input type="file" accept="image/*" onChange={handleImagePick} className="hidden" />
+            </label>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {opts.map((opt, i) => {
             const ic = ci === i;
@@ -400,9 +577,9 @@ function MCQEditForm({ question, onCancel, onSave, saving }: {
         <TimeLimitPicker presets={[30,45,60,90,120]} value={tl} onChange={setTl}/>
       </div>
       <div className="flex gap-2.5 mt-6">
-        <button onClick={onCancel} disabled={saving} className="flex-1 py-2.5 rounded-2xl font-display font-semibold text-sm bg-warm-100 text-charcoal-600 hover:bg-warm-200 border border-warm-200 transition-colors disabled:opacity-50">Cancel</button>
-        <button onClick={save} disabled={saving} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl font-display font-semibold text-sm bg-brand-600 hover:bg-brand-700 text-white shadow-brand-sm active:scale-[0.97] transition-all disabled:opacity-50">
-          {saving ? <><svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>Saving…</> : <>Save Changes</>}
+        <button onClick={onCancel} disabled={saving || uploading} className="flex-1 py-2.5 rounded-2xl font-display font-semibold text-sm bg-warm-100 text-charcoal-600 hover:bg-warm-200 border border-warm-200 transition-colors disabled:opacity-50">Cancel</button>
+        <button onClick={save} disabled={saving || uploading} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl font-display font-semibold text-sm bg-brand-600 hover:bg-brand-700 text-white shadow-brand-sm active:scale-[0.97] transition-all disabled:opacity-50">
+          {saving || uploading ? <><svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>{uploading ? 'Uploading…' : 'Saving…'}</> : <>Save Changes</>}
         </button>
       </div>
     </div>
@@ -883,6 +1060,505 @@ function CodingEditor({ quiz, onCountChange }: {
   );
 }
 
+// ─── Mixed Assessment Editor ──────────────────────────────────────────────
+interface MixedItemDisplay {
+  quizItem: QuizItem;
+  mcq?: Question;
+  coding?: CodingQuestion;
+}
+
+function MixedEditor({ quiz, onCountChange }: { quiz: Quiz; onCountChange: (n: number) => void }) {
+  const [items,        setItems]        = useState<MixedItemDisplay[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [activeTab,    setActiveTab]    = useState<'none' | 'mcq' | 'coding'>('none');
+  const [successMsg,   setSuccessMsg]   = useState('');
+  const [deletingItem, setDeletingItem] = useState<MixedItemDisplay | null>(null);
+  const [deleting,     setDeleting]     = useState(false);
+
+  // MCQ form state
+  const [qText,        setQText]        = useState('');
+  const [options,      setOptions]      = useState(['', '', '', '']);
+  const [correctIdx,   setCorrectIdx]   = useState(0);
+  const [mcqTimeLimit, setMcqTimeLimit] = useState(60);
+  const [mcqImgFile,   setMcqImgFile]   = useState<File | null>(null);
+  const [mcqImgPrev,   setMcqImgPrev]   = useState<string | null>(null);
+  const [savingMcq,    setSavingMcq]    = useState(false);
+
+  // Coding form state
+  const [cTitle,       setCTitle]       = useState('');
+  const [cDesc,        setCDesc]        = useState('');
+  const [cLangs,       setCLangs]       = useState<CodingLanguage[]>(['python3', 'javascript']);
+  const [cTimeLimit,   setCTimeLimit]   = useState(1800);
+  const [savingCoding, setSavingCoding] = useState(false);
+  const [cError,       setCError]       = useState('');
+
+  const fetchItems = useCallback(async () => {
+    // 1. Fetch quiz_items in position order
+    const { data: qiList } = await supabase
+      .from('quiz_items')
+      .select('*')
+      .eq('quiz_id', quiz.id)
+      .order('position', { ascending: true });
+
+    if (!qiList || qiList.length === 0) {
+      setItems([]);
+      onCountChange(0);
+      setLoading(false);
+      return;
+    }
+
+    // 2. Fetch full MCQ and coding question details
+    const mcqIds = qiList.filter(i => i.item_type === 'mcq').map(i => i.item_id);
+    const codeIds = qiList.filter(i => i.item_type === 'coding').map(i => i.item_id);
+
+    let mcqMap: Record<string, Question> = {};
+    if (mcqIds.length > 0) {
+      const { data: mcqData } = await supabase.from('questions').select('*').in('id', mcqIds);
+      if (mcqData) {
+        mcqData.forEach(q => { mcqMap[q.id] = q; });
+      }
+    }
+
+    let codeMap: Record<string, CodingQuestion> = {};
+    if (codeIds.length > 0) {
+      const { data: codeData } = await supabase.from('coding_questions').select('*').in('id', codeIds);
+      if (codeData) {
+        codeData.forEach(c => { codeMap[c.id] = c; });
+      }
+    }
+
+    const resolved: MixedItemDisplay[] = qiList.map(qi => ({
+      quizItem: qi,
+      mcq: qi.item_type === 'mcq' ? mcqMap[qi.item_id] : undefined,
+      coding: qi.item_type === 'coding' ? codeMap[qi.item_id] : undefined,
+    }));
+
+    setItems(resolved);
+    onCountChange(resolved.length);
+    setLoading(false);
+  }, [quiz.id, onCountChange]);
+
+  useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  const totalTimeSeconds = items.reduce((acc, it) => {
+    if (it.mcq) return acc + it.mcq.time_limit_seconds;
+    if (it.coding) return acc + it.coding.time_limit_seconds;
+    return acc;
+  }, 0);
+
+  const handleAddMcq = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (options.some(o => !o.trim())) { alert('Fill in all 4 options.'); return; }
+    setSavingMcq(true);
+
+    let imageUrl: string | null = null;
+    if (mcqImgFile) {
+      imageUrl = await uploadQuestionImage(mcqImgFile, quiz.id);
+    }
+
+    // Insert into questions table
+    const { data: qData, error: qErr } = await supabase
+      .from('questions')
+      .insert([{
+        quiz_id: quiz.id,
+        question_text: qText,
+        options,
+        correct_answer: options[correctIdx],
+        time_limit_seconds: mcqTimeLimit,
+        image_url: imageUrl,
+      }])
+      .select()
+      .single();
+
+    if (qErr || !qData) {
+      alert('Error creating MCQ: ' + qErr?.message);
+      setSavingMcq(false);
+      return;
+    }
+
+    // Insert into quiz_items table
+    const nextPos = items.length;
+    await supabase.from('quiz_items').insert([{
+      quiz_id: quiz.id,
+      item_type: 'mcq',
+      item_id: qData.id,
+      position: nextPos,
+    }]);
+
+    setQText('');
+    setOptions(['', '', '', '']);
+    setCorrectIdx(0);
+    setMcqTimeLimit(60);
+    setMcqImgFile(null);
+    if (mcqImgPrev) URL.revokeObjectURL(mcqImgPrev);
+    setMcqImgPrev(null);
+    setActiveTab('none');
+    setSuccessMsg('MCQ question added successfully!');
+    setTimeout(() => setSuccessMsg(''), 3000);
+    await fetchItems();
+    setSavingMcq(false);
+  };
+
+  const handleAddCoding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCError('');
+    if (!cTitle.trim()) { setCError('Problem title is required.'); return; }
+    if (!cDesc.trim())  { setCError('Description is required.'); return; }
+    if (cLangs.length === 0) { setCError('Select at least one language.'); return; }
+    setSavingCoding(true);
+
+    const { data: cData, error: cErr } = await supabase
+      .from('coding_questions')
+      .insert([{
+        quiz_id: quiz.id,
+        title: cTitle,
+        description: cDesc,
+        language_options: cLangs,
+        time_limit_seconds: cTimeLimit,
+      }])
+      .select()
+      .single();
+
+    if (cErr || !cData) {
+      setCError(cErr?.message ?? 'Failed to add coding problem.');
+      setSavingCoding(false);
+      return;
+    }
+
+    const nextPos = items.length;
+    await supabase.from('quiz_items').insert([{
+      quiz_id: quiz.id,
+      item_type: 'coding',
+      item_id: cData.id,
+      position: nextPos,
+    }]);
+
+    setCTitle('');
+    setCDesc('');
+    setCLangs(['python3', 'javascript']);
+    setCTimeLimit(1800);
+    setActiveTab('none');
+    setSuccessMsg('Coding problem added! Expand it to add test cases.');
+    setTimeout(() => setSuccessMsg(''), 3000);
+    await fetchItems();
+    setSavingCoding(false);
+  };
+
+  const handleMove = async (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= items.length) return;
+
+    const itemA = items[index].quizItem;
+    const itemB = items[targetIdx].quizItem;
+
+    await Promise.all([
+      supabase.from('quiz_items').update({ position: targetIdx }).eq('id', itemA.id),
+      supabase.from('quiz_items').update({ position: index }).eq('id', itemB.id),
+    ]);
+
+    await fetchItems();
+  };
+
+  const handleDeleteItem = async () => {
+    if (!deletingItem) return;
+    setDeleting(true);
+    const qi = deletingItem.quizItem;
+
+    await supabase.from('quiz_items').delete().eq('id', qi.id);
+    if (qi.item_type === 'mcq') {
+      await supabase.from('questions').delete().eq('id', qi.item_id);
+    } else {
+      await supabase.from('test_cases').delete().eq('question_id', qi.item_id);
+      await supabase.from('coding_questions').delete().eq('id', qi.item_id);
+    }
+
+    setDeletingItem(null);
+    setDeleting(false);
+    await fetchItems();
+  };
+
+  if (loading) return <LoadingState />;
+
+  return (
+    <div className="space-y-7">
+      {/* ── Summary bar ── */}
+      <div className="bg-white border border-warm-200 rounded-3xl p-5 sm:p-6 shadow-xs flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="font-display font-bold text-charcoal-900 text-lg">Mixed Assessment Questions</h2>
+          <p className="text-charcoal-500 text-xs mt-0.5">
+            MCQs and coding problems will appear to the candidate in the order below.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="bg-warm-100 border border-warm-200 rounded-2xl px-3.5 py-2 text-center">
+            <div className="text-[10px] font-display font-semibold uppercase tracking-wider text-charcoal-400">Total Duration</div>
+            <div className="font-display font-extrabold text-charcoal-900 text-base">{fmtSeconds(totalTimeSeconds)}</div>
+          </div>
+          <div className="bg-purple-50 border border-purple-200 rounded-2xl px-3.5 py-2 text-center">
+            <div className="text-[10px] font-display font-semibold uppercase tracking-wider text-purple-600">Breakdown</div>
+            <div className="font-display font-extrabold text-purple-900 text-base">
+              {items.filter(i => i.quizItem.item_type === 'mcq').length} MCQ · {items.filter(i => i.quizItem.item_type === 'coding').length} Code
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {successMsg && <SuccessToast msg={successMsg} />}
+
+      {/* ── Action Buttons ── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setActiveTab(t => t === 'mcq' ? 'none' : 'mcq')}
+          className={`inline-flex items-center gap-2 px-5 py-3 rounded-2xl font-display font-semibold text-sm transition-all duration-200 ${
+            activeTab === 'mcq'
+              ? 'bg-brand-600 text-white shadow-brand-sm'
+              : 'bg-white border-2 border-warm-200 text-charcoal-700 hover:border-brand-400 hover:text-brand-600'
+          }`}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add MCQ Question
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab(t => t === 'coding' ? 'none' : 'coding')}
+          className={`inline-flex items-center gap-2 px-5 py-3 rounded-2xl font-display font-semibold text-sm transition-all duration-200 ${
+            activeTab === 'coding'
+              ? 'bg-charcoal-900 text-white shadow-md'
+              : 'bg-white border-2 border-warm-200 text-charcoal-700 hover:border-charcoal-900 hover:text-charcoal-900'
+          }`}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Add Coding Problem
+        </button>
+      </div>
+
+      {/* ── Expandable Add MCQ Form ── */}
+      {activeTab === 'mcq' && (
+        <div className="bg-white border border-warm-200 rounded-3xl shadow-sm overflow-hidden animate-fade-down">
+          <div className="h-1.5 w-full bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700"/>
+          <form onSubmit={handleAddMcq} className="p-6 sm:p-7 space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display font-bold text-charcoal-900 text-base">New MCQ Question</h3>
+              <button type="button" onClick={() => setActiveTab('none')} className="text-xs text-charcoal-400 hover:text-charcoal-600">Cancel</button>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Question Text</label>
+              <textarea required rows={3} placeholder="Type question statement here…" value={qText} onChange={e => setQText(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl font-body text-sm text-charcoal-900 placeholder:text-charcoal-400 bg-white border-2 border-warm-300 hover:border-warm-400 focus:border-brand-400 focus:outline-none resize-none transition-all duration-200"/>
+            </div>
+
+            {/* Optional Image */}
+            <div className="flex flex-col gap-1.5">
+              <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Question Image (Optional)</label>
+              {mcqImgPrev ? (
+                <div className="relative w-fit border-2 border-warm-300 rounded-2xl p-2 bg-warm-50">
+                  <img src={mcqImgPrev} alt="Preview" className="max-h-40 rounded-xl object-contain"/>
+                  <button type="button" onClick={() => { setMcqImgFile(null); setMcqImgPrev(null); }}
+                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="12"/></svg>
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-3 px-4 py-3 border-2 border-dashed border-warm-300 hover:border-brand-400 rounded-2xl cursor-pointer bg-warm-50/50 hover:bg-warm-50 transition-all text-charcoal-500 text-sm">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-charcoal-400"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  <span>Click to attach an image (diagram, chart, figure)</span>
+                  <input type="file" accept="image/*" onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) { setMcqImgFile(f); setMcqImgPrev(URL.createObjectURL(f)); }
+                  }} className="hidden"/>
+                </label>
+              )}
+            </div>
+
+            <div>
+              <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider block mb-2.5">Answer Options</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {options.map((opt, i) => {
+                  const isCorrect = correctIdx === i;
+                  return (
+                    <div key={i} className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all duration-150 ${isCorrect ? 'border-green-400 bg-green-50' : 'border-warm-200 bg-white hover:border-warm-300'}`}>
+                      <button type="button" onClick={() => setCorrectIdx(i)} className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${isCorrect ? 'border-green-500 bg-green-500' : 'border-warm-400 bg-white hover:border-green-400'}`}>
+                        {isCorrect && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                      </button>
+                      <span className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center font-display font-bold text-xs ${isCorrect ? 'bg-green-500 text-white' : 'bg-warm-100 text-charcoal-500'}`}>{OPTION_LABELS[i]}</span>
+                      <input required placeholder={`Option ${OPTION_LABELS[i]}`} value={opt} onChange={e => {
+                        const n = [...options]; n[i] = e.target.value; setOptions(n);
+                      }} className="flex-1 min-w-0 text-sm font-body bg-transparent focus:outline-none"/>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <TimeLimitPicker presets={[30, 45, 60, 90, 120]} value={mcqTimeLimit} onChange={setMcqTimeLimit}/>
+
+            <button type="submit" disabled={savingMcq} className="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-display font-semibold text-sm px-6 py-3 rounded-2xl shadow-brand-sm">
+              {savingMcq ? 'Saving Question…' : 'Add MCQ Question'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* ── Expandable Add Coding Form ── */}
+      {activeTab === 'coding' && (
+        <div className="bg-white border border-warm-200 rounded-3xl shadow-sm overflow-hidden animate-fade-down">
+          <div className="h-1.5 w-full bg-gradient-to-r from-charcoal-700 via-charcoal-800 to-charcoal-900"/>
+          <form onSubmit={handleAddCoding} className="p-6 sm:p-7 space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display font-bold text-charcoal-900 text-base">New Coding Problem</h3>
+              <button type="button" onClick={() => setActiveTab('none')} className="text-xs text-charcoal-400 hover:text-charcoal-600">Cancel</button>
+            </div>
+            {cError && <ErrorBanner msg={cError}/>}
+            <Field id="mc-title" label="Problem Title" placeholder="e.g. Invert Binary Tree" value={cTitle} onChange={setCTitle}/>
+            <div className="flex flex-col gap-1.5">
+              <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider">Problem Description</label>
+              <textarea required rows={7} placeholder="Describe problem, input/output formats, constraints, examples…" value={cDesc} onChange={e => setCDesc(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl font-body text-sm text-charcoal-900 placeholder:text-charcoal-400 bg-white border-2 border-warm-300 hover:border-warm-400 focus:border-brand-400 focus:outline-none resize-y transition-all duration-200"/>
+            </div>
+            <div>
+              <label className="font-display font-semibold text-xs text-charcoal-600 uppercase tracking-wider block mb-2.5">Allowed Languages</label>
+              <div className="flex flex-wrap gap-2">
+                {ALL_LANGUAGES.map(lang => {
+                  const active = cLangs.includes(lang);
+                  return (
+                    <button key={lang} type="button" onClick={() => setCLangs(prev => prev.includes(lang) ? prev.filter(l => l !== lang) : [...prev, lang])}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-display font-semibold text-sm ${active ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-warm-200 bg-white text-charcoal-500 hover:border-warm-300'}`}>
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center ${active ? 'bg-brand-600 border-brand-600' : 'border-warm-400'}`}>
+                        {active && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                      </span>
+                      {LANGUAGE_META[lang].label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <TimeLimitPicker presets={TIME_PRESETS} value={cTimeLimit} onChange={setCTimeLimit}/>
+            <button type="submit" disabled={savingCoding} className="inline-flex items-center gap-2 bg-charcoal-900 hover:bg-charcoal-800 disabled:opacity-60 text-white font-display font-semibold text-sm px-6 py-3 rounded-2xl shadow-sm">
+              {savingCoding ? 'Saving Problem…' : 'Add Coding Problem'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* ── Questions List ── */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-bold text-charcoal-900 text-base">
+            Ordered Assessment Flow
+            <span className="ml-2 text-xs font-semibold text-charcoal-400 bg-warm-100 border border-warm-200 px-2 py-0.5 rounded-pill">{items.length}</span>
+          </h2>
+        </div>
+
+        {items.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center bg-white border border-warm-200 border-dashed rounded-3xl">
+            <p className="font-display font-bold text-charcoal-600 text-sm mb-1">No questions added yet</p>
+            <p className="text-charcoal-400 text-xs max-w-sm">Use the buttons above to add MCQ questions or coding problems to this assessment.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {items.map((it, idx) => {
+              const isMcq = it.quizItem.item_type === 'mcq';
+              return (
+                <div key={it.quizItem.id} className="bg-white border border-warm-200 rounded-2xl shadow-xs overflow-hidden transition-all duration-200 hover:border-warm-300">
+                  <div className="flex items-start justify-between gap-3 p-5 pb-3">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      {/* Reorder arrows */}
+                      <div className="flex flex-col gap-1 items-center justify-center flex-shrink-0 mt-0.5">
+                        <button type="button" disabled={idx === 0} onClick={() => handleMove(idx, 'up')}
+                          className="p-1 rounded-md text-charcoal-400 hover:text-charcoal-700 hover:bg-warm-100 disabled:opacity-30 disabled:hover:bg-transparent">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                        </button>
+                        <span className="font-display font-bold text-xs text-charcoal-500">{idx + 1}</span>
+                        <button type="button" disabled={idx === items.length - 1} onClick={() => handleMove(idx, 'down')}
+                          className="p-1 rounded-md text-charcoal-400 hover:text-charcoal-700 hover:bg-warm-100 disabled:opacity-30 disabled:hover:bg-transparent">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-display font-bold px-2 py-0.5 rounded-pill border ${
+                            isMcq ? 'bg-green-100 text-green-700 border-green-200' : 'bg-purple-100 text-purple-700 border-purple-200'
+                          }`}>
+                            {isMcq ? 'MCQ' : 'Coding'}
+                          </span>
+                          <span className="text-xs text-charcoal-400 font-medium">
+                            {fmtSeconds(isMcq ? it.mcq?.time_limit_seconds ?? 60 : it.coding?.time_limit_seconds ?? 1800)} limit
+                          </span>
+                          {isMcq && it.mcq?.image_url && (
+                            <span className="text-[10px] font-semibold text-brand-600 bg-brand-50 border border-brand-200 px-1.5 py-0.5 rounded-md">
+                              Image attached
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="font-display font-bold text-charcoal-900 text-sm leading-snug">
+                          {isMcq ? it.mcq?.question_text : it.coding?.title}
+                        </p>
+
+                        {isMcq && it.mcq?.image_url && (
+                          <div className="mt-2">
+                            <img src={it.mcq.image_url} alt="Figure" className="max-h-24 max-w-xs rounded-lg border border-warm-200 object-contain bg-warm-50 p-1"/>
+                          </div>
+                        )}
+
+                        {!isMcq && it.coding && (
+                          <p className="text-charcoal-500 text-xs mt-1 line-clamp-2">{it.coding.description}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button onClick={() => setDeletingItem(it)}
+                        className="inline-flex items-center gap-1 text-xs font-display font-semibold px-2.5 py-1.5 rounded-xl bg-white text-red-500 hover:bg-red-50 hover:text-red-600 border border-warm-200 hover:border-red-200 transition-all">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* MCQ Options preview */}
+                  {isMcq && it.mcq && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-5 pb-4 pt-1">
+                      {it.mcq.options.map((opt, i) => {
+                        const isCorrect = opt === it.mcq?.correct_answer;
+                        return (
+                          <div key={i} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs ${isCorrect ? 'bg-green-50 border border-green-200 text-green-800 font-semibold' : 'bg-warm-50 border border-warm-200 text-charcoal-600'}`}>
+                            <span className={`w-5 h-5 rounded-md flex items-center justify-center font-display font-bold text-[10px] ${isCorrect ? 'bg-green-500 text-white' : 'bg-warm-200 text-charcoal-600'}`}>{OPTION_LABELS[i]}</span>
+                            <span className="truncate">{opt}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Coding problem test cases summary */}
+                  {!isMcq && it.coding && (
+                    <div className="px-5 pb-4 pt-1 flex items-center gap-2">
+                      <span className="text-xs text-charcoal-500">Allowed: {it.coding.language_options.join(', ')}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {deletingItem && (
+        <ConfirmDeleteModal
+          title="Delete Assessment Question?"
+          body={`Are you sure you want to remove this ${deletingItem.quizItem.item_type === 'mcq' ? 'MCQ question' : 'coding problem'} from the assessment?`}
+          onCancel={() => setDeletingItem(null)}
+          onConfirm={handleDeleteItem}
+          deleting={deleting}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function QuizQuestionEditor() {
   const { quizId } = useParams();
   const [quiz,          setQuiz]         = useState<Quiz|null>(null);
@@ -902,15 +1578,20 @@ export default function QuizQuestionEditor() {
 
   const countLabel = quiz.type === 'coding'
     ? `${questionCount} problem${questionCount !== 1 ? 's' : ''}`
+    : quiz.type === 'mixed'
+    ? `${questionCount} item${questionCount !== 1 ? 's' : ''}`
     : `${questionCount} question${questionCount !== 1 ? 's' : ''}`;
 
   return (
     <div className="max-w-4xl mx-auto w-full space-y-7 animate-fade-up">
       <PageHeader quiz={quiz} questionCount={questionCount} countLabel={countLabel}/>
-      {quiz.type === 'coding'
-        ? <CodingEditor quiz={quiz} onCountChange={setQuestionCount}/>
-        : <MCQEditor    quiz={quiz} onCountChange={setQuestionCount}/>
-      }
+      {quiz.type === 'coding' ? (
+        <CodingEditor quiz={quiz} onCountChange={setQuestionCount}/>
+      ) : quiz.type === 'mixed' ? (
+        <MixedEditor  quiz={quiz} onCountChange={setQuestionCount}/>
+      ) : (
+        <MCQEditor    quiz={quiz} onCountChange={setQuestionCount}/>
+      )}
     </div>
   );
 }
