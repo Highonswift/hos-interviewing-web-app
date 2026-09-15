@@ -646,7 +646,7 @@ function CodingEditor({ quiz, onQuestionCountChange }: { quiz: Quiz; onQuestionC
                 </button>
               ))}
               <div className="flex items-center gap-1.5">
-                <input type="number" min="30" value={pTimeLimit} onChange={e => setPTimeLimit(Number(e.target.value))}
+                <input type="number" min="5" value={pTimeLimit} onChange={e => setPTimeLimit(Number(e.target.value))}
                   className="w-20 text-center text-sm font-body font-medium text-charcoal-900 bg-white border-2 border-warm-300 rounded-xl px-2 py-1.5 focus:outline-none focus:border-brand-400 transition-colors" />
                 <span className="text-xs text-charcoal-400 font-medium">sec</span>
               </div>

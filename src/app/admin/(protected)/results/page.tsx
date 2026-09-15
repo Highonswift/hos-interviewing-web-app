@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Quiz, Result } from '@/lib/types';
 
@@ -84,6 +85,7 @@ function SortTh({ label, sortKey, current, dir, onSort }: {
 
 /* ─── Main page ──────────────────────────────────────────────────────────── */
 export default function ViewResults() {
+  const router          = useRouter();
   const [quizzes,       setQuizzes]       = useState<Quiz[]>([]);
   const [results,       setResults]       = useState<Result[]>([]);
   const [selectedQuiz,  setSelectedQuiz]  = useState<Quiz | null>(null);
@@ -355,8 +357,10 @@ export default function ViewResults() {
                         const colors = scoreColor(pct);
                         return (
                           <tr
-                            key={i}
-                            className="border-b border-warm-100 last:border-none hover:bg-warm-50 transition-colors duration-100"
+                            key={r.id || i}
+                            onClick={() => router.push(`/admin/results/${r.id}`)}
+                            className="border-b border-warm-100 last:border-none hover:bg-brand-50/40 cursor-pointer transition-colors duration-100 group"
+                            title="Click to view detailed answer sheet"
                           >
                             {/* Rank */}
                             <td className="px-4 py-3.5 text-xs text-charcoal-400 font-medium">{i + 1}</td>
@@ -364,13 +368,13 @@ export default function ViewResults() {
                             {/* Candidate */}
                             <td className="px-4 py-3.5">
                               <div className="flex items-center gap-2.5">
-                                <div className="w-7 h-7 rounded-lg bg-brand-100 flex items-center justify-center flex-shrink-0">
-                                  <span className="font-display font-bold text-brand-700 text-xs">
+                                <div className="w-7 h-7 rounded-lg bg-brand-100 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-600 group-hover:text-white transition-colors">
+                                  <span className="font-display font-bold text-brand-700 group-hover:text-white text-xs transition-colors">
                                     {r.candidate_name.slice(0, 2).toUpperCase()}
                                   </span>
                                 </div>
                                 <div>
-                                  <span className="font-display font-semibold text-charcoal-800 text-sm block leading-tight">{r.candidate_name}</span>
+                                  <span className="font-display font-semibold text-charcoal-800 text-sm block leading-tight group-hover:text-brand-600 transition-colors">{r.candidate_name}</span>
                                   {r.candidate_email ? (
                                     <span className="text-xs text-charcoal-400 font-mono block mt-0.5">{r.candidate_email}</span>
                                   ) : (
@@ -408,17 +412,23 @@ export default function ViewResults() {
                               </div>
                             </td>
 
-                            {/* Tab switches */}
+                            {/* Tab switches & Action */}
                             <td className="px-4 py-3.5">
-                              <span className={`inline-flex items-center gap-1 font-display font-semibold text-xs px-2.5 py-1 rounded-pill border ${tabColor(r.tab_switch_count)}`}>
-                                {r.tab_switch_count > 0 && (
-                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-                                    <path d="M12 9v4"/><path d="M12 17h.01"/>
-                                  </svg>
-                                )}
-                                {r.tab_switch_count === 0 ? 'Clean' : `${r.tab_switch_count} switch${r.tab_switch_count > 1 ? 'es' : ''}`}
-                              </span>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`inline-flex items-center gap-1 font-display font-semibold text-xs px-2.5 py-1 rounded-pill border ${tabColor(r.tab_switch_count)}`}>
+                                  {r.tab_switch_count > 0 && (
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                                      <path d="M12 9v4"/><path d="M12 17h.01"/>
+                                    </svg>
+                                  )}
+                                  {r.tab_switch_count === 0 ? 'Clean' : `${r.tab_switch_count} switch${r.tab_switch_count > 1 ? 'es' : ''}`}
+                                </span>
+
+                                <span className="text-xs text-brand-600 font-display font-semibold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                  View answers →
+                                </span>
+                              </div>
                             </td>
                           </tr>
                         );
